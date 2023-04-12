@@ -1,1 +1,1 @@
-This is my agent for the LuxAI S2 kaggle competition.
+This is my agent for the LuxAI S2 kaggle competition. 
