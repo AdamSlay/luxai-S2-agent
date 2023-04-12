@@ -1,2 +1,6 @@
 __pycache__
 submission.tar.gz
+.idea
+.ipynb_checkpoints
+*.html
+*.json
