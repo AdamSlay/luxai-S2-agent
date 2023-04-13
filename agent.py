@@ -141,7 +141,8 @@ class Agent():
         self.unit_states = new_unit_states
 
     def avoid_collisions(self, unit):
-        if unit.unit_id in self.action_queue.keys():
+        state = self.unit_states[unit.unit_id]
+        if unit.unit_id in self.action_queue.keys() and state != "low battery":
             queue = self.action_queue[unit.unit_id]
 
             # if you have an action queue, check the next position
@@ -157,7 +158,7 @@ class Agent():
 
                 # if the next position is already occupied, clear the action queue
                 if new_pos in self.occupied_next:
-                    print(f'Step {self.step}: Unit {unit.unit_id} is moving to occupied tile!', file=sys.stderr)
+                    print(f'Step {self.step}: Unit {unit.unit_id} is moving to occupied tile! {new_pos}', file=sys.stderr)
                     q_builder = QueueBuilder(self, unit, [], self.obs)
                     q_builder.clear_mining_dibs()
                     self.action_queue[unit.unit_id] = []
@@ -341,7 +342,7 @@ class Agent():
             need_recharge = q_builder.check_need_recharge()
             state = self.unit_states[unit.unit_id]
             if need_recharge and state != "recharging" and state != "low battery":
-                print(f"Step {self.step}: Unit {unit.unit_id} needs to recharge", file=sys.stderr)
+                print(f"Step {self.step}: Unit {unit.unit_id} needs to recharge, was {self.unit_states[unit.unit_id]}", file=sys.stderr)
                 q_builder.clear_mining_dibs()
                 queue = q_builder.build_recharge_queue()
                 self.update_queues(unit, queue)
@@ -383,6 +384,7 @@ class Agent():
             need_recharge = q_builder.check_need_recharge()
             state = self.unit_states[unit.unit_id]
             if need_recharge and state != "recharging" and state != "low battery":
+                print(f"Step {self.step}: Unit {unit.unit_id} needs to recharge, was {self.unit_states[unit.unit_id]}", file=sys.stderr)
                 q_builder.clear_mining_dibs()
                 queue = q_builder.build_recharge_queue()
                 self.update_queues(unit, queue)

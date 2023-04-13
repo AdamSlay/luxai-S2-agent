@@ -26,7 +26,8 @@ class QueueBuilder:
         if self.unit.unit_type == "LIGHT":
             heavy_dibs = [tile for uid, tile in self.agent.heavy_mining_dibs.items()]
             dibs_tiles.extend(heavy_dibs)
-        dibs_tiles = self.agent.occupied_next
+        # this speeds up runtime because units don't go searching for tiles that are far away
+        # dibs_tiles = self.agent.occupied_next
 
         resource_tile = closest_resource_tile(resource, self.unit.pos, dibs_tiles, self.obs)
         if resource_tile is None:
@@ -59,10 +60,6 @@ class QueueBuilder:
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
 
         if self.unit.power < pathing_cost + dig_allowance:
-            print(
-                f"Step {self.agent.step}: Unit {self.unit.unit_id} doesn't have enough power to get to resource and back!",
-                file=sys.stderr)
-            # not enough power to get there and back, return None and get back into the decision tree
             return self.build_recharge_queue()
 
         if len(path_to_resource) > 1:
@@ -137,11 +134,13 @@ class QueueBuilder:
         step = deepcopy(self.agent.step)
         power_required = deepcopy(desired_power)
 
-        while power_required > 0:
+        while power_required >= 0:
             queue.append(self.unit.move(0))
             if step % 50 < 30:
                 power_required -= solar_charge
             step += 1
+        # add an extra move to make sure you don't get stuck
+        queue.append(self.unit.move(0))
 
         queue = truncate_actions(queue)
         return queue
@@ -173,7 +172,7 @@ class QueueBuilder:
         pos = (position[0], position[1])
 
         if pos in self.agent.occupied_next:
-            print(f"Step {self.agent.step}: {self.unit.unit_id} is trying to transfer but is blocked", file=sys.stderr)
+            print(f"Step {self.agent.step}: {self.unit.unit_id} is trying to transfer but has to move from {pos}", file=sys.stderr)
             return False, 8
 
         if on_tile(position, target_factory_tile):
