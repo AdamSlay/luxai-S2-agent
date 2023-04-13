@@ -12,6 +12,8 @@ class QueueBuilder:
         self.obs = deepcopy(obs)
 
     def build_mining_queue(self, resource: str) -> list or None:
+        self.agent.unit_states[self.unit.unit_id] = "mining"
+        self.clear_mining_dibs()
         queue = []
         transfer_ready, transfer_direction = self.transfer_ready(home_pref=True)
         if transfer_ready:
@@ -19,7 +21,14 @@ class QueueBuilder:
             queue.extend(transfer_queue)
 
         dibs = self.get_dibs_class()
-        resource_tile = closest_resource_tile(resource, self.unit.pos, dibs.values(), self.obs)
+        dibs_tiles = [tile for uid, tile in dibs.items()]
+
+        if self.unit.unit_type == "LIGHT":
+            heavy_dibs = [tile for uid, tile in self.agent.heavy_mining_dibs.items()]
+            dibs_tiles.extend(heavy_dibs)
+        dibs_tiles = self.agent.occupied_next
+
+        resource_tile = closest_resource_tile(resource, self.unit.pos, dibs_tiles, self.obs)
         if resource_tile is None:
             print(f"Unit {self.unit.unit_id} can't find a resource tile!", file=sys.stderr)
             # can't find a resource, return None and get back into the decision tree
@@ -29,6 +38,13 @@ class QueueBuilder:
         # path to and cost to resource
         path_to_resource = self.get_path_positions(self.unit.pos, resource_tile)
         cost_to_resource = self.get_path_cost(path_to_resource)
+
+        # if we are already on the resource tile, make sure you can stay
+        pos = (self.unit.pos[0], self.unit.pos[1])
+        if len(path_to_resource) <= 1 and pos in self.agent.occupied_next:
+            direction = move_toward(self.unit.pos, resource_tile, self.agent.occupied_next)
+            queue = [self.unit.move(direction)]
+            return queue
 
         # avoid heavies when looking for a return tile
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
@@ -61,7 +77,8 @@ class QueueBuilder:
         return queue
 
     def build_recharge_queue(self, occupied=None) -> list:
-        print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue!", file=sys.stderr)
+        # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
+        self.agent.unit_states[self.unit.unit_id] = "recharging"
         self.clear_mining_dibs()
         queue = []
 
@@ -70,37 +87,78 @@ class QueueBuilder:
         pickup_amt = self.get_pickup_amt(self.target_factory)
 
         pos = (self.unit.pos[0], self.unit.pos[1])
-        if on_tile(self.unit.pos, return_tile) and pos not in self.agent.occupied_next:
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is on the return tile and not occupied!",
-                  file=sys.stderr)
+        in_position = on_tile(self.unit.pos, return_tile)
+        in_occupied = pos in self.agent.occupied_next
+        if in_position and not in_occupied:
+            # print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is on the return tile and not occupied!",
+            #       file=sys.stderr)
             queue = [self.unit.pickup(4, pickup_amt)]
             return queue
-        elif on_tile(self.unit.pos, return_tile) and pos in self.agent.occupied_next:
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is on the return tile and occupied!",
-                  file=sys.stderr)
+        elif in_position and in_occupied:
+            # print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is on the return tile and occupied!",
+            #       file=sys.stderr)
             direction = move_toward(self.unit.pos, return_tile, self.agent.occupied_next)
             queue = [self.unit.move(direction)]
             return queue
 
+        # get path home
         if occupied is not None:
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue with occupied!",
-                  file=sys.stderr)
-            path = self.get_path_positions(self.unit.pos, return_tile, occupied)
+            path_home = self.get_path_positions(self.unit.pos, return_tile, occupied)
         else:
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue without occupied!",
-                  file=sys.stderr)
-            path = self.get_path_positions(self.unit.pos, return_tile)
+            path_home = self.get_path_positions(self.unit.pos, return_tile)
 
-        if len(path) > 1:
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue with a path!",
-                  file=sys.stderr)
-            moves = self.get_path_moves(path)
+        # wait for power if you don't have enough
+        cost_home = self.get_path_cost(path_home)
+        if self.unit.power < cost_home:
+            cost_remaining = cost_home - self.unit.power
+            queue = self.build_low_battery_queue(cost_remaining)
+            return queue
+
+        if len(path_home) > 1:
+            moves = self.get_path_moves(path_home)
             queue.extend(moves)
 
+        # pick up power once you get home
         queue.append(self.unit.pickup(4, pickup_amt))
         if len(queue) > 20:
             queue = queue[:20]
         return queue
+
+    def build_low_battery_queue(self, desired_power: int) -> list:
+        print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is low on power! Former state: {self.agent.unit_states[self.unit.unit_id]}", file=sys.stderr)
+        self.agent.unit_states[self.unit.unit_id] = "low battery"
+        self.clear_mining_dibs()
+        queue = []
+        if self.unit.unit_type == "HEAVY":
+            solar_charge = 10
+        else:
+            solar_charge = 1
+
+        step = deepcopy(self.agent.step)
+        power_required = deepcopy(desired_power)
+
+        while power_required > 0:
+            queue.append(self.unit.move(0))
+            if step % 50 < 30:
+                power_required -= solar_charge
+            step += 1
+
+        queue = truncate_actions(queue)
+        return queue
+
+    def check_need_recharge(self) -> bool:
+        if self.unit.unit_type == "HEAVY":
+            reserve_power = 160
+        else:
+            reserve_power = 15
+
+        closest_charge_tile = closest_factory_tile(self.target_factory.pos, self.unit.pos, self.agent.my_heavy_units)
+        path_home = self.get_path_positions(self.unit.pos, closest_charge_tile)
+        cost_home = self.get_path_cost(path_home)
+
+        if self.unit.power <= cost_home + reserve_power:
+            return True
+        return False
 
     # UTILITIES
     def transfer_ready(self, home_pref=False, position=None) -> tuple:
@@ -160,7 +218,6 @@ class QueueBuilder:
         else:
             dibs_weight_class = self.agent.light_mining_dibs
 
-        # Clear mining dibs if you're not mining anymore
         if self.unit.unit_id in dibs_weight_class.keys():
             del dibs_weight_class[self.unit.unit_id]
 
@@ -228,15 +285,15 @@ class QueueBuilder:
     def get_path_positions(self, start: np.ndarray, finish: np.ndarray, recharging=False, occupied=None) -> list:
         rubble_map = self.obs["board"]["rubble"]
         if occupied is None:
-            occupied_next = list(self.agent.occupied_next)
+            occupied_next = list(deepcopy(self.agent.occupied_next))
         else:
             occupied_next = list(occupied)
 
         if recharging:
-            opp_unit_positions = list(self.agent.opp_unit_tiles)
+            opp_unit_positions = [u.pos for uid, u in self.agent.opp_units.items() if u.unit_type == "HEAVY"]
             occupied_next.extend(opp_unit_positions)
         if self.unit.unit_type == "LIGHT":
-            opp_heavy_positions = list(self.agent.opp_heavy_tiles)
+            opp_heavy_positions = [u.pos for uid, u in self.agent.opp_units.items() if u.unit_type == "HEAVY"]
             occupied_next.extend(opp_heavy_positions)
             for pos in opp_heavy_positions:
                 cardinal_tiles = get_cardinal_tiles(pos)
@@ -244,12 +301,12 @@ class QueueBuilder:
 
         opp_factory_tiles = list(self.agent.opp_factory_tiles)
         cheap_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles)
-        fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
-        if fast_path is not None and cheap_path is not None:
-            fast_cost = self.get_path_cost(fast_path)
-            cheap_cost = self.get_path_cost(cheap_path)
-            if fast_cost < cheap_cost:
-                return fast_path
+        # fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
+        # if fast_path is not None and cheap_path is not None:
+        #     fast_cost = self.get_path_cost(fast_path)
+        #     cheap_cost = self.get_path_cost(cheap_path)
+        #     if fast_cost < cheap_cost:
+        #         return fast_path
 
         return cheap_path
 
