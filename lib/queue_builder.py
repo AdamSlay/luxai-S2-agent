@@ -1,4 +1,4 @@
-from math import floor
+# from math import floor
 
 from lib.dijkstra import dijkstras_path
 from lib.utils import *
@@ -26,8 +26,6 @@ class QueueBuilder:
         if self.unit.unit_type == "LIGHT":
             heavy_dibs = [tile for uid, tile in self.agent.heavy_mining_dibs.items()]
             dibs_tiles.extend(heavy_dibs)
-        # this speeds up runtime because units don't go searching for tiles that are far away
-        # dibs_tiles = self.agent.occupied_next
 
         resource_tile = closest_resource_tile(resource, self.unit.pos, dibs_tiles, self.obs)
         if resource_tile is None:
@@ -56,7 +54,8 @@ class QueueBuilder:
         cost_from_resource = self.get_path_cost(path_from_resource)
 
         # total cost
-        pathing_cost = cost_to_resource + cost_from_resource
+        reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
+        pathing_cost = cost_to_resource + cost_from_resource + reserve_power
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
 
         if self.unit.power < pathing_cost + dig_allowance:
@@ -87,13 +86,9 @@ class QueueBuilder:
         in_position = on_tile(self.unit.pos, return_tile)
         in_occupied = pos in self.agent.occupied_next
         if in_position and not in_occupied:
-            # print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is on the return tile and not occupied!",
-            #       file=sys.stderr)
             queue = [self.unit.pickup(4, pickup_amt)]
             return queue
         elif in_position and in_occupied:
-            # print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is on the return tile and occupied!",
-            #       file=sys.stderr)
             direction = move_toward(self.unit.pos, return_tile, self.agent.occupied_next)
             queue = [self.unit.move(direction)]
             return queue
@@ -107,9 +102,27 @@ class QueueBuilder:
         # wait for power if you don't have enough
         cost_home = self.get_path_cost(path_home)
         if self.unit.power < cost_home:
-            cost_remaining = cost_home - self.unit.power
-            queue = self.build_low_battery_queue(cost_remaining)
-            return queue
+            if self.agent.unit_states[self.unit.unit_id] == "evasion recharge":
+                print(f"Unit {self.unit.unit_id} is performing evasion recharge and doesn't have enough battery", file=sys.stderr)
+
+                next_pos = path_home[1]
+                cost_to_next = self.get_path_cost([next_pos])
+
+                # if you can't even make it to the next tile, just wait
+                if self.unit.power < cost_to_next:
+                    cost_remaining = cost_home - self.unit.power
+                    queue = self.build_low_battery_queue(cost_remaining)
+                    return queue
+
+                # if you can make it to the next tile, just go there
+                next_move = self.get_path_moves([next_pos])
+                queue = next_move
+                return queue
+
+            else:
+                cost_remaining = cost_home - self.unit.power
+                queue = self.build_low_battery_queue(cost_remaining)
+                return queue
 
         if len(path_home) > 1:
             moves = self.get_path_moves(path_home)
@@ -145,11 +158,64 @@ class QueueBuilder:
         queue = truncate_actions(queue)
         return queue
 
-    def check_need_recharge(self) -> bool:
-        if self.unit.unit_type == "HEAVY":
-            reserve_power = 160
+    def build_evasion_dance(self, avoid_positions, opp_unit=None):
+        reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
+
+        # If you barely have enough power to get home, recharge
+        path_home = self.get_path_positions(self.unit.pos, self.target_factory.pos, avoid_positions)
+        cost_home = self.get_path_cost(path_home)
+        if self.unit.power < cost_home + reserve_power:
+            self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
+            queue = self.build_recharge_queue(avoid_positions)
+            if len(queue) == 0:
+                print(f"Step {self.agent.step}: {self.unit.unit_id} couldn't find a recharge path that avoids positions", file=sys.stderr)
+                queue = self.build_recharge_queue(self.agent.occupied_next)
+            return queue
+
+        light_vs_heavy = self.unit.unit_type == "LIGHT" and opp_unit.unit_type == "HEAVY"
+        # is_homer = self.agent.all_unit_titles[self.unit.unit_id] == "homer"
+        away_from_home = distance_to(self.unit.pos, self.target_factory.pos) > 4
+        # if opp_unit is None or light_vs_heavy or (is_homer and away_from_home):
+        if opp_unit is None or light_vs_heavy or away_from_home:
+            # If you're in a precarious situation, retreat
+            direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
+            if direction == 0:
+                print(f"Step {self.agent.step}: {self.unit.unit_id} coulnd't find direction while avoiding positions", file=sys.stderr)
+                # if you can't find a direction while avoiding threats, try to find a direction without avoiding threats
+                direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
+            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} light_vs_heavy or away_from_home. Avoid_positions: {avoid_positions}", file=sys.stderr)
+            queue = [self.unit.move(direction)]
+
+        # Otherwise, find a direction to move in then move back
         else:
-            reserve_power = 15
+            # if is_homer:
+            #     # If you're a homer and you're near home, attack, but move back to home
+            #     direction = move_toward(self.unit.pos, opp_unit.pos, avoid_positions)
+            #     next_pos = next_position(self.unit.pos, direction)
+            #     direction_home = move_toward(next_pos, self.target_factory.pos, [])
+            #     sequence = [
+            #         self.unit.move(direction),
+            #         self.unit.move(direction_home)
+            #     ]
+            #     queue = sequence
+            # else:
+            direction = move_toward(self.unit.pos, opp_unit.pos, avoid_positions)
+            if direction == 0:
+                direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
+            if direction == 0:
+                direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
+
+            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} moving toward enemy. Avoid_positions: {avoid_positions}", file=sys.stderr)
+            opposite_direction = get_opposite_direction(direction)
+            sequence = [
+                self.unit.move(direction),
+                self.unit.move(opposite_direction)
+            ]
+            queue = sequence
+        return queue
+
+    def check_need_recharge(self) -> bool:
+        reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
 
         closest_charge_tile = closest_factory_tile(self.target_factory.pos, self.unit.pos, self.agent.my_heavy_units)
         path_home = self.get_path_positions(self.unit.pos, closest_charge_tile)
@@ -172,7 +238,6 @@ class QueueBuilder:
         pos = (position[0], position[1])
 
         if pos in self.agent.occupied_next:
-            print(f"Step {self.agent.step}: {self.unit.unit_id} is trying to transfer but has to move from {pos}", file=sys.stderr)
             return False, 8
 
         if on_tile(position, target_factory_tile):
@@ -220,16 +285,14 @@ class QueueBuilder:
         if self.unit.unit_id in dibs_weight_class.keys():
             del dibs_weight_class[self.unit.unit_id]
 
-    def get_number_of_digs(self, power_remaining: int, cost_to_resource: int, tile_amt=None) -> int:
+    def get_number_of_digs(self, power_remaining: int, total_movement_cost: int, tile_amt=None) -> int:
         if self.unit.unit_type == "HEAVY":
-            reserve_power = 100
             dig_cost = 60
             dig_rate = 20
         else:
-            reserve_power = 10
             dig_cost = 5
             dig_rate = 2
-        number_of_digs = (power_remaining - cost_to_resource - reserve_power) // dig_cost
+        number_of_digs = (power_remaining - total_movement_cost) // dig_cost
         if tile_amt is not None:
             if tile_amt % dig_rate == 0:
                 ex_digs = (tile_amt // dig_rate)

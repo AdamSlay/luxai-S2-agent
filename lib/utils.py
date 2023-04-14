@@ -1,3 +1,4 @@
+from math import floor
 import random
 import sys
 
@@ -34,6 +35,19 @@ def direction_to(start, target):
             return 3
         else:
             return 1
+
+
+def get_opposite_direction(direction: int) -> int:
+    #  direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)
+    if direction == 1:
+        return 3
+    if direction == 2:
+        return 4
+    if direction == 3:
+        return 1
+    if direction == 4:
+        return 2
+    return 0
 
 
 def next_position(position: np.ndarray, direction: int):
@@ -77,6 +91,25 @@ def tile_adjacent(tile: np.ndarray, position: np.ndarray) -> bool:
     if 0 < dist <= 1:
         return True
     return False
+
+
+def can_stay(position: np.ndarray, off_limits: list) -> bool:
+    for tile in off_limits:
+        if tile[0] == position[0] and tile[1] == position[1]:
+            return False
+    return True
+
+
+def move_cost(unit, pos, obs) -> int:
+    if unit.unit_type == "HEAVY":
+        multiplier = 1
+        move_cost = 40
+    else:
+        multiplier = 0.05
+        move_cost = 2
+    rubble_map = obs["board"]["rubble"]
+    rubble_cost = floor(rubble_map[pos[0]][pos[1]] * multiplier)
+    return rubble_cost + move_cost + 1
 
 
 def get_cardinal_direction(position: np.ndarray, target: np.ndarray) -> str:
@@ -251,3 +284,12 @@ def truncate_actions(actions):
     truncated.append(last_action)
 
     return truncated
+
+
+def get_path_cost(path_positions: list, obs) -> int:
+    total_cost = 0
+    rubble_map = obs["board"]["rubble"]
+    for pos in path_positions:
+        rubble_cost = rubble_map[pos[0]][pos[1]]
+        total_cost += rubble_cost
+    return total_cost

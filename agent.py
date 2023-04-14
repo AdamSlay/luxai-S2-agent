@@ -1,6 +1,7 @@
 # import numpy as np
 # import sys
 
+from lib.evasion import evasion_check
 from lib.factory_utils import *
 from lib.utils import *
 from lib.queue_builder import QueueBuilder
@@ -55,6 +56,10 @@ class Agent():
         # dibs
         self.light_mining_dibs = dict()
         self.heavy_mining_dibs = dict()
+
+        # reserve power
+        self.moderate_reserve_power = {"LIGHT": 15, "HEAVY": 160}
+        self.low_reserve_power = {"LIGHT": 10, "HEAVY": 100}
 
     def early_setup(self, step: int, obs, remainingOverageTime: int = 60):
         queue, factories_to_place, factory_position, low_rubble_scores = setup(self, step, obs, remainingOverageTime)
@@ -173,6 +178,7 @@ class Agent():
                 if queue[0][0] == 0:
                     next_pos = next_position(unit.pos, queue[0][1])
                     new_pos = (next_pos[0], next_pos[1])
+                    print(f"Step {self.step}: Unit {unit.unit_id} is moving to {new_pos}. add_next_pos_to_occnext", file=sys.stderr)
                 # otherwise, next_pos is the current position
                 else:
                     new_pos = (unit.pos[0], unit.pos[1])
@@ -186,9 +192,19 @@ class Agent():
                 self.occupied_next.add(pos)
 
     def update_queues(self, unit, queue):
+        if isinstance(queue, list) and queue:
+            if queue[0][0] == 0:
+                new_pos = next_position(unit.pos, queue[0][1])
+                new_pos = (new_pos[0], new_pos[1])
+                self.occupied_next.add(new_pos)
+            else:
+                new_pos = (unit.pos[0], unit.pos[1])
+                self.occupied_next.add(new_pos)
+        elif not queue:
+            new_pos = (unit.pos[0], unit.pos[1])
+            self.occupied_next.add(new_pos)
         self.action_queue[unit.unit_id] = queue
         self.new_queue[unit.unit_id] = queue
-        self.add_nextpos_to_occnext(unit)
 
     def finalize_new_queue(self):
         actions_to_submit = dict()
@@ -203,7 +219,7 @@ class Agent():
         heavies, lights = [], []
         for uid, u in units.items():
 
-            # TODO: this check should go in some sort of unit setup function
+            # this check should go in some sort of unit setup function
             if uid not in self.action_queue.keys():
                 self.action_queue[uid] = []
 
@@ -300,16 +316,16 @@ class Agent():
         self.update_occupied_next()  # Update the occupied_next set
         self.clear_dead_units_from_memory()  # Clear out the dead units from the mining dibs
 
-        print(f"Step {self.step}: heavy dibs: {len(self.heavy_mining_dibs)}\n light dibs: {len(self.light_mining_dibs)}", file=sys.stderr)
-        print(f"Step {self.step}: occ_next: {len(self.occupied_next)} \n"
-              f"my_fact_tiles: {len(self.my_factory_tiles)} \n"
-              f"opp_factory_tiles: {len(self.opp_factory_tiles)} \n"
-              f"factory_centers: {len(self.my_factory_centers)} \n"
-              f"factory_resources: {len(self.factory_resources)} \n"
-              f"unit_states: {len(self.unit_states)} \n"
-              f"factory_types: {len(self.factory_types)} \n"
-              f"factory_states: {len(self.factory_states)} \n"
-              f"factory_needs: {len(self.factory_needs)} \n", file=sys.stderr)
+        # print(f"Step {self.step}: heavy dibs: {len(self.heavy_mining_dibs)}\n light dibs: {len(self.light_mining_dibs)}", file=sys.stderr)
+        # print(f"Step {self.step}: occ_next: {len(self.occupied_next)} \n"
+        #       f"my_fact_tiles: {len(self.my_factory_tiles)} \n"
+        #       f"opp_factory_tiles: {len(self.opp_factory_tiles)} \n"
+        #       f"factory_centers: {len(self.my_factory_centers)} \n"
+        #       f"factory_resources: {len(self.factory_resources)} \n"
+        #       f"unit_states: {len(self.unit_states)} \n"
+        #       f"factory_types: {len(self.factory_types)} \n"
+        #       f"factory_states: {len(self.factory_states)} \n"
+        #       f"factory_needs: {len(self.factory_needs)} \n", file=sys.stderr)
 
         # Occasional Factory updates
         if self.step % 10 == 0:
@@ -320,7 +336,7 @@ class Agent():
                 ice_map, ore_map = obs["board"]["ice"], obs["board"]["ore"]
                 fact_ice, fact_ore = nearby_resources(factory.pos, ice_map, ore_map, all_factories)
                 self.factory_resources[fid] = [fact_ice, fact_ore]
-                print(f"Step {self.step}: Factory {fid} has {fact_ice} ice and {fact_ore} ore", file=sys.stderr)
+                # print(f"Step {self.step}: Factory {fid} has {fact_ice} ice and {fact_ore} ore", file=sys.stderr)
 
                 # then update the factory's type
                 self.set_factory_type(factory)
@@ -339,10 +355,15 @@ class Agent():
             closest_factory = get_closest_factory(factories, unit.pos)
             q_builder = QueueBuilder(self, unit, closest_factory, obs)
 
+            # Check for evasions now that we have come up with our final queue and any interrupts
+            evasion_queue = evasion_check(self, unit, closest_factory, opp_units, obs)
+            if evasion_queue is not None:
+                self.update_queues(unit, evasion_queue)
+                continue
+
             need_recharge = q_builder.check_need_recharge()
             state = self.unit_states[unit.unit_id]
             if need_recharge and state != "recharging" and state != "low battery":
-                print(f"Step {self.step}: Unit {unit.unit_id} needs to recharge, was {self.unit_states[unit.unit_id]}", file=sys.stderr)
                 q_builder.clear_mining_dibs()
                 queue = q_builder.build_recharge_queue()
                 self.update_queues(unit, queue)
@@ -360,8 +381,9 @@ class Agent():
                     else:
                         resource = "ice"
 
-                    if closest_factory.cargo.water > 500:
-                        resource = "ore"
+                    # this was just to get more ore for testing
+                    # if closest_factory.cargo.water > 500:
+                    #     resource = "ore"
 
                     queue = q_builder.build_mining_queue(resource)
                     if queue is None:
@@ -381,10 +403,15 @@ class Agent():
             closest_factory = get_closest_factory(factories, unit.pos)
             q_builder = QueueBuilder(self, unit, closest_factory, obs)
 
+            # Check for evasions now that we have come up with our final queue and any interrupts
+            evasion_queue = evasion_check(self, unit, closest_factory, opp_units, obs)
+            if evasion_queue is not None:
+                self.update_queues(unit, evasion_queue)
+                continue
+
             need_recharge = q_builder.check_need_recharge()
             state = self.unit_states[unit.unit_id]
             if need_recharge and state != "recharging" and state != "low battery":
-                print(f"Step {self.step}: Unit {unit.unit_id} needs to recharge, was {self.unit_states[unit.unit_id]}", file=sys.stderr)
                 q_builder.clear_mining_dibs()
                 queue = q_builder.build_recharge_queue()
                 self.update_queues(unit, queue)
@@ -419,7 +446,7 @@ class Agent():
                     queue = factory.build_heavy()
                     self.update_queues(factory, queue)
 
-                elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs:
+                elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs and self.step % 50 == 0:
                     queue = factory.build_light()
                     self.update_queues(factory, queue)
 
