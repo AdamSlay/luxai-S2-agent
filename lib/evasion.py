@@ -70,12 +70,12 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
                 # if the queue is an evasion queue, but I'm not in danger anymore, then clear the queue
                 if self.unit_states[unit.unit_id] == "evading" and next_dir != 0:
                     if danger_close:
-                        print(f"Step {self.step}: {unit.unit_id} was evading, but still danger close. performing next evasion action", file=sys.stderr)
+                        # print(f"Step {self.step}: {unit.unit_id} was evading, but still danger close. performing next evasion action", file=sys.stderr)
                         # you were evading, your next action is safe, but still danger close,
                         # do the next action then clear rest of the queue
                         self.action_queue[unit.unit_id] = [self.action_queue[unit.unit_id][0]]
                     else:
-                        print(f"Step {self.step}: {unit.unit_id} was evading, but no longer danger close. returning None from evasion_check", file=sys.stderr)
+                        # print(f"Step {self.step}: {unit.unit_id} was evading, but no longer danger close. returning None from evasion_check", file=sys.stderr)
                         # you were evading, but no longer danger close, clear the queue and stop evading
                         self.unit_states[unit.unit_id] = "idle"
                         self.action_queue[unit.unit_id] = []
@@ -83,14 +83,14 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
 
                 elif not danger_close:
                     # you were not evading, and your next action is safe, so continue
-                    print(f"Step {self.step}: {unit.unit_id} was not evading, and next move is safe. returning None from evasion_check", file=sys.stderr)
+                    # print(f"Step {self.step}: {unit.unit_id} was not evading, and next move is safe. returning None from evasion_check", file=sys.stderr)
                     return None
 
         # if the next action is not a move, then make sure there isn't danger close
         elif not danger_close:
-            print(
-                f"Step {self.step}: {unit.unit_id} was not evading, and is not moving. returning None from evasion_check",
-                file=sys.stderr)
+            # print(
+            #     f"Step {self.step}: {unit.unit_id} was not evading, and is not moving. returning None from evasion_check",
+            #     file=sys.stderr)
             return None
 
     # If danger close, build evasion dance queue and return it, keep in mind avoid_these_tiles
@@ -115,7 +115,7 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
             return queue
         else:
             # you are already moving to a safe tile, so just continue
-            print(f"Step {self.step}: {unit.unit_id} returning None from inside danger_close check", file=sys.stderr)
+            # print(f"Step {self.step}: {unit.unit_id} returning None from inside danger_close check", file=sys.stderr)
             return None
 
         # queue = q_builder.build_evasion_dance(avoid_positions)

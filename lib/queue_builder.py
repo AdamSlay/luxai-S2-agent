@@ -11,9 +11,11 @@ class QueueBuilder:
         self.target_factory = target_factory
         self.obs = deepcopy(obs)
 
-    def build_mining_queue(self, resource: str) -> list or None:
+    def build_mining_queue(self, resource: str, rubble_tile=None) -> list or None:
         self.agent.unit_states[self.unit.unit_id] = "mining"
         self.clear_mining_dibs()
+        self.clear_previous_task()
+
         queue = []
         transfer_ready, transfer_direction = self.transfer_ready(home_pref=True)
         if transfer_ready:
@@ -24,10 +26,20 @@ class QueueBuilder:
         dibs_tiles = [tile for uid, tile in dibs.items()]
 
         if self.unit.unit_type == "LIGHT":
+            factory_tasks_weight_class = self.agent.factory_tasks_light
             heavy_dibs = [tile for uid, tile in self.agent.heavy_mining_dibs.items()]
             dibs_tiles.extend(heavy_dibs)
+        else:
+            factory_tasks_weight_class = self.agent.factory_tasks_heavy
 
-        resource_tile = closest_resource_tile(resource, self.unit.pos, dibs_tiles, self.obs)
+        if rubble_tile is not None:
+            resource_tile = rubble_tile
+            tile_amount = self.obs["board"]["rubble"][resource_tile[0]][resource_tile[1]]
+            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is mining rubble at {resource_tile}, tile_amt = {tile_amount}!", file=sys.stderr)
+        else:
+            resource_tile = closest_resource_tile(resource, self.unit.pos, dibs_tiles, self.obs)
+            tile_amount = None
+
         if resource_tile is None:
             print(f"Unit {self.unit.unit_id} can't find a resource tile!", file=sys.stderr)
             # can't find a resource, return None and get back into the decision tree
@@ -65,8 +77,10 @@ class QueueBuilder:
             moves_to_resource = self.get_path_moves(path_to_resource)
             queue.extend(moves_to_resource)
 
-        digs = self.get_number_of_digs(self.unit.power, pathing_cost)
+        digs = self.get_number_of_digs(self.unit.power, pathing_cost, tile_amt=tile_amount)
         queue.append(self.unit.dig(n=digs))
+
+        factory_tasks_weight_class[self.target_factory.unit_id][self.unit.unit_id] = resource
 
         if len(queue) > 20:
             queue = queue[:20]
@@ -76,6 +90,7 @@ class QueueBuilder:
         # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
         self.agent.unit_states[self.unit.unit_id] = "recharging"
         self.clear_mining_dibs()
+        self.clear_previous_task()
         queue = []
 
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
@@ -135,9 +150,9 @@ class QueueBuilder:
         return queue
 
     def build_low_battery_queue(self, desired_power: int) -> list:
-        print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is low on power! Former state: {self.agent.unit_states[self.unit.unit_id]}", file=sys.stderr)
         self.agent.unit_states[self.unit.unit_id] = "low battery"
         self.clear_mining_dibs()
+        self.clear_previous_task()
         queue = []
         if self.unit.unit_type == "HEAVY":
             solar_charge = 10
@@ -159,6 +174,7 @@ class QueueBuilder:
         return queue
 
     def build_evasion_dance(self, avoid_positions, opp_unit=None):
+        self.clear_previous_task()
         reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
 
         # If you barely have enough power to get home, recharge
@@ -183,29 +199,16 @@ class QueueBuilder:
                 print(f"Step {self.agent.step}: {self.unit.unit_id} coulnd't find direction while avoiding positions", file=sys.stderr)
                 # if you can't find a direction while avoiding threats, try to find a direction without avoiding threats
                 direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} light_vs_heavy or away_from_home. Avoid_positions: {avoid_positions}", file=sys.stderr)
             queue = [self.unit.move(direction)]
 
         # Otherwise, find a direction to move in then move back
         else:
-            # if is_homer:
-            #     # If you're a homer and you're near home, attack, but move back to home
-            #     direction = move_toward(self.unit.pos, opp_unit.pos, avoid_positions)
-            #     next_pos = next_position(self.unit.pos, direction)
-            #     direction_home = move_toward(next_pos, self.target_factory.pos, [])
-            #     sequence = [
-            #         self.unit.move(direction),
-            #         self.unit.move(direction_home)
-            #     ]
-            #     queue = sequence
-            # else:
             direction = move_toward(self.unit.pos, opp_unit.pos, avoid_positions)
             if direction == 0:
                 direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
             if direction == 0:
                 direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
 
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} moving toward enemy. Avoid_positions: {avoid_positions}", file=sys.stderr)
             opposite_direction = get_opposite_direction(direction)
             sequence = [
                 self.unit.move(direction),
@@ -284,6 +287,14 @@ class QueueBuilder:
 
         if self.unit.unit_id in dibs_weight_class.keys():
             del dibs_weight_class[self.unit.unit_id]
+
+    def clear_previous_task(self):
+        uid = self.unit.unit_id
+        fid = self.target_factory.unit_id
+        if uid in self.agent.factory_tasks_light[fid].keys():
+            del self.agent.factory_tasks_light[fid][uid]
+        if uid in self.agent.factory_tasks_heavy[fid].keys():
+            del self.agent.factory_tasks_heavy[fid][uid]
 
     def get_number_of_digs(self, power_remaining: int, total_movement_cost: int, tile_amt=None) -> int:
         if self.unit.unit_type == "HEAVY":

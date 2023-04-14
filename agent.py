@@ -2,6 +2,7 @@
 # import sys
 
 from lib.evasion import evasion_check
+from lib.excavation_utils import *
 from lib.factory_utils import *
 from lib.utils import *
 from lib.queue_builder import QueueBuilder
@@ -19,6 +20,7 @@ class Agent():
         self.env_cfg: EnvConfig = env_cfg
         self.step = 0
         self.obs = None
+        self.opp_strains = []  # list of strains
 
         # queues
         self.action_queue = dict()
@@ -51,14 +53,19 @@ class Agent():
         self.unit_states = dict()  # uid: "state"
         self.factory_types = dict()  # fid: "type"
         self.factory_states = dict()  # fid: "state"
-        self.factory_needs = dict()  # fid: [ice, ore]
+
+        # Tasks
+        self.factory_needs_light = dict()  # fid: [ice, ore]  --> what I need
+        self.factory_needs_heavy = dict()  # fid: [ice, ore]  --> what I need
+        self.factory_tasks_light = dict()  # {fid: {unit_id :"task"}}  --> what I've got
+        self.factory_tasks_heavy = dict()  # {fid: {unit_id :"task"}}  --> what I've got
 
         # dibs
         self.light_mining_dibs = dict()
         self.heavy_mining_dibs = dict()
 
         # reserve power
-        self.moderate_reserve_power = {"LIGHT": 15, "HEAVY": 160}
+        self.moderate_reserve_power = {"LIGHT": 15, "HEAVY": 150}
         self.low_reserve_power = {"LIGHT": 10, "HEAVY": 100}
 
     def early_setup(self, step: int, obs, remainingOverageTime: int = 60):
@@ -163,7 +170,8 @@ class Agent():
 
                 # if the next position is already occupied, clear the action queue
                 if new_pos in self.occupied_next:
-                    print(f'Step {self.step}: Unit {unit.unit_id} is moving to occupied tile! {new_pos}', file=sys.stderr)
+                    print(f'Step {self.step}: Unit {unit.unit_id} is moving to occupied tile! {new_pos}',
+                          file=sys.stderr)
                     q_builder = QueueBuilder(self, unit, [], self.obs)
                     q_builder.clear_mining_dibs()
                     self.action_queue[unit.unit_id] = []
@@ -178,7 +186,8 @@ class Agent():
                 if queue[0][0] == 0:
                     next_pos = next_position(unit.pos, queue[0][1])
                     new_pos = (next_pos[0], next_pos[1])
-                    print(f"Step {self.step}: Unit {unit.unit_id} is moving to {new_pos}. add_next_pos_to_occnext", file=sys.stderr)
+                    print(f"Step {self.step}: Unit {unit.unit_id} is moving to {new_pos}. add_next_pos_to_occnext",
+                          file=sys.stderr)
                 # otherwise, next_pos is the current position
                 else:
                     new_pos = (unit.pos[0], unit.pos[1])
@@ -259,39 +268,122 @@ class Agent():
             self.factory_types[fid] = "ore pref"
 
     def define_factory_needs(self, factory):
-        needs = []
         fid = factory.unit_id
+        # Initialize factory needs/tasks if they don't exist yet
+        if fid not in self.factory_needs_light.keys():
+            self.factory_needs_light[fid] = []
+        if fid not in self.factory_needs_heavy.keys():
+            self.factory_needs_heavy[fid] = []
+        if fid not in self.factory_tasks_light.keys():
+            self.factory_tasks_light[fid] = dict()
+        if fid not in self.factory_tasks_heavy.keys():
+            self.factory_tasks_heavy[fid] = dict()
+
         number_of_ice = self.factory_resources[fid][0]
         number_of_ore = self.factory_resources[fid][1]
+
         factory_type = self.factory_types[fid]
+        factory_state = "basic"  # for now, all factories are basic
 
-        if factory_type == "ice mine":
-            [needs.append("ice") for _ in range(number_of_ice)]
-        elif factory_type == "ore mine":
-            [needs.append("ore") for _ in range(number_of_ore)]
-        elif factory_type == "balanced":
-            [needs.append("ice") for _ in range(number_of_ice)]
-            [needs.append("ore") for _ in range(number_of_ore)]
-        elif factory_type == "ice pref":
-            [needs.append("ice") for _ in range(number_of_ice)]
-            [needs.append("ore") for _ in range(number_of_ore)]
-        elif factory_type == "ore pref":
-            [needs.append("ore") for _ in range(number_of_ore)]
-            [needs.append("ice") for _ in range(number_of_ice)]
-        elif factory_type == "rich":
-            [needs.append("ice") for _ in range(number_of_ice)]
-            [needs.append("ore") for _ in range(number_of_ore)]
-        elif factory_type == "resourceless":
-            needs.append("ice")
+        # TODO: make this a switch statement
+        if factory_state == "basic":
+            # TODO: make this a function
 
-        self.factory_needs[fid] = needs
+            # figure out all tasks that need to be done
+            light_todo = []
+            heavy_todo = []
 
-    def pop_factory_needs(self, factory):
+            # LIGHTS
+            # do I have room to grow lichen?
+            needs_excavation = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
+            primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
+            zone_cost = get_total_rubble(self.obs, primary_zone)
+            if needs_excavation or zone_cost > 0:
+                # # if not, then I need to excavate either a clearing path or immediate zone
+                [light_todo.append("rubble") for _ in range(4)]
+
+            # if I have room to grow lichen, do I have enough water to grow lichen?
+            if factory.cargo.water < 200 and number_of_ice >= 2:
+                ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
+                # # if not, then I need to mine ice
+                [light_todo.append("ice") for _ in range(ice_miners)]
+
+            # if I have enough water to grow lichen, do I have enough ore to build bots?
+            if factory.cargo.metal < 100 and number_of_ore >= 1:
+                ore_miners = number_of_ore - 1 if number_of_ore - 1 <= 3 else 3
+                # # if not, then I need to mine ore
+                [light_todo.append("ore") for _ in range(ore_miners)]
+
+            # if I have enough ore to build bots, does someone else need my help?
+            # # if so, then I need to go help them
+
+            # HEAVIES
+            # if it's early in the game, and I'm safe on water, do I have enough ore to build bots?
+            if self.step < 300 and factory.cargo.water < 100 and number_of_ore > 0:
+                # # then I need to mine ore
+                heavy_todo.append("ore")
+
+            # do I have enough water to grow lichen?
+            if factory.cargo.water < 1000 and number_of_ice > 0:
+                # # if not, then I need to mine ice
+                heavy_todo.append("ice")
+
+            # if I have enough water to grow lichen, am I super clogged up with rubble?
+            if lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10):
+                # # if so, then I need to excavate either a clearing path or immediate zone
+                heavy_todo.append("rubble")
+
+            # if I don't need to excavate, do I have enough ore to build bots?
+            if factory.cargo.metal < 100 and number_of_ore > 0:
+                # # if not, then I need to mine ore
+                heavy_todo.append("ore")
+
+            # if I have enough ore to build bots, does someone else need my help?
+            # # if so, then I need to go help them
+
+            # figure out what tasks are already being done
+            light_tasks = []
+            light_tasks_being_done = self.factory_tasks_light[fid]
+            for uid, task in light_tasks_being_done.items():
+                if task:
+                    light_tasks.append(task)
+            heavy_tasks = []
+            heavy_task_dict = self.factory_tasks_heavy[fid]
+            for uid, task in heavy_task_dict.items():
+                if task:
+                    heavy_tasks.append(task)
+
+            # remove tasks that are already being done from the list of tasks that need to be done
+            light_todo = [task for task in light_todo if task not in light_tasks]
+            heavy_todo = [task for task in heavy_todo if task not in heavy_tasks]
+            if light_todo:
+                self.factory_needs_light[fid] = light_todo
+            elif not light_todo:
+                del self.factory_needs_light[fid]
+            if heavy_todo:
+                self.factory_needs_heavy[fid] = heavy_todo
+            elif not heavy_todo:
+                del self.factory_needs_heavy[fid]
+
+    # TODO: This is actually for setting up the queue for a unit that needs to clear rubble
+    # if lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10):
+    #     positions_to_clear = next_positions_to_clear(self.obs, factory.strain_id, self.opp_strains,
+    #                                                  self.occupied_next)
+    #     if len(positions_to_clear) > 0:
+    #         lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, self.obs)
+    # TODO: end of rubble clearing code
+    def pop_factory_needs(self, factory, light=True):
         fid = factory.unit_id
-        if len(self.factory_needs[fid]) > 1:
-            self.factory_needs[fid] = self.factory_needs[fid][1:]
+        if light:
+            factory_needs = self.factory_needs_light
         else:
-            del self.factory_needs[fid]
+            factory_needs = self.factory_needs_heavy
+        if len(factory_needs[fid]) > 1:
+            factory_needs[fid] = factory_needs[fid][1:]
+        else:
+            print(f"Step {self.step}: {fid} has no more needs, deleting from {factory_needs}", file=sys.stderr)
+            del factory_needs[fid]
+            print(f"Step {self.step}: {fid} factory_needs is now {factory_needs}", file=sys.stderr)
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         # initial step setup, these are the basic vars that we need to have
@@ -302,7 +394,7 @@ class Agent():
         all_factories = factories | opp_factories
         units = game_state.units[self.player]
         opp_units = game_state.units[self.opp_player]
-
+        print(f"Step: {step}: timing", file=sys.stderr)
         # global vars
         self.step = game_state.real_env_steps
         self.my_units = units
@@ -316,34 +408,25 @@ class Agent():
         self.update_occupied_next()  # Update the occupied_next set
         self.clear_dead_units_from_memory()  # Clear out the dead units from the mining dibs
 
-        # print(f"Step {self.step}: heavy dibs: {len(self.heavy_mining_dibs)}\n light dibs: {len(self.light_mining_dibs)}", file=sys.stderr)
-        # print(f"Step {self.step}: occ_next: {len(self.occupied_next)} \n"
-        #       f"my_fact_tiles: {len(self.my_factory_tiles)} \n"
-        #       f"opp_factory_tiles: {len(self.opp_factory_tiles)} \n"
-        #       f"factory_centers: {len(self.my_factory_centers)} \n"
-        #       f"factory_resources: {len(self.factory_resources)} \n"
-        #       f"unit_states: {len(self.unit_states)} \n"
-        #       f"factory_types: {len(self.factory_types)} \n"
-        #       f"factory_states: {len(self.factory_states)} \n"
-        #       f"factory_needs: {len(self.factory_needs)} \n", file=sys.stderr)
+        # Factory updates
+        self.factory_types = dict()  # Clear out the factory types from last step
+        self.factory_needs = dict()  # Clear out the factory needs from last step
 
-        # Occasional Factory updates
-        if self.step % 10 == 0:
-            self.factory_types = dict()  # Clear out the factory types from last step
-            self.factory_needs = dict()  # Clear out the factory needs from last step
-            for fid, factory in factories.items():
-                # Update the factory's resources, these are the resources which the factory should have control over
-                ice_map, ore_map = obs["board"]["ice"], obs["board"]["ore"]
-                fact_ice, fact_ore = nearby_resources(factory.pos, ice_map, ore_map, all_factories)
-                self.factory_resources[fid] = [fact_ice, fact_ore]
-                # print(f"Step {self.step}: Factory {fid} has {fact_ice} ice and {fact_ore} ore", file=sys.stderr)
+        # Set opp_strains
+        if self.step == 2:
+            for fid, factory in opp_factories.items():
+                self.opp_strains.append(factory.strain_id)
+        for fid, factory in factories.items():
+            # Update the factory's resources, these are the resources which the factory should have control over
+            ice_map, ore_map = obs["board"]["ice"], obs["board"]["ore"]
+            fact_ice, fact_ore = nearby_resources(factory.pos, ice_map, ore_map, all_factories)
+            self.factory_resources[fid] = [fact_ice, fact_ore]
 
-                # then update the factory's type
-                self.set_factory_type(factory)
+            # then update the factory's type
+            self.set_factory_type(factory)
 
-                # then update the factory's needs
-                self.define_factory_needs(factory)
-
+            # then update the factory's needs
+            self.define_factory_needs(factory)
 
         # Unit Actions
         heavies, lights = self.split_heavies_and_lights(units)
@@ -375,9 +458,9 @@ class Agent():
                     # find your closest factory and initialize a QueueBuilder
 
                     # for now, just mine factory_needs in order, but this will be more complex later
-                    if closest_factory.unit_id in self.factory_needs:
-                        resource = self.factory_needs[closest_factory.unit_id][0]
-                        self.pop_factory_needs(closest_factory)
+                    if closest_factory.unit_id in self.factory_needs_heavy.keys():
+                        resource = self.factory_needs_heavy[closest_factory.unit_id][0]
+                        self.pop_factory_needs(closest_factory, light=False)
                     else:
                         resource = "ice"
 
@@ -419,15 +502,39 @@ class Agent():
                 # if you don't have a queue, build one
                 if len(self.action_queue[unit.unit_id]) == 0:
                     q_builder.clear_mining_dibs()
+                    q_builder.clear_previous_task()
 
                     # for now, just mine factory_needs in order, but this will be more complex later
-                    if closest_factory.unit_id in self.factory_needs:
-                        resource = self.factory_needs[closest_factory.unit_id][0]
-                        self.pop_factory_needs(closest_factory)
+                    if closest_factory.unit_id in self.factory_needs_light.keys():
+                        resource = self.factory_needs_light[closest_factory.unit_id][0]
+                        self.pop_factory_needs(closest_factory, light=True)
                     else:
+                        print(f"Step {self.step}: No light needs for factory {closest_factory.unit_id}, mining ice",
+                              file=sys.stderr)
                         resource = "ice"
 
-                    queue = q_builder.build_mining_queue(resource)
+                    if resource == "rubble":
+                        off_limits = deepcopy(self.my_factory_tiles)
+                        primary_zone = get_orthogonal_positions(closest_factory.pos, 1, off_limits, self.obs)
+                        zone_cost = get_total_rubble(self.obs, primary_zone)
+                        if zone_cost > 0:
+                            print(f"Step {self.step}: Mining rubble in primary zone: {primary_zone}", file=sys.stderr)
+                            lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, self.obs)
+                            queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
+                        else:
+                            off_limits_or_dibbed = deepcopy(list(self.occupied_next))
+                            off_limits_or_dibbed.extend(self.light_mining_dibs.values())
+                            positions_to_clear = next_positions_to_clear(self.obs, closest_factory.strain_id,
+                                                                         self.opp_strains,
+                                                                         off_limits=off_limits_or_dibbed)
+                            if len(positions_to_clear) > 0:
+                                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, self.obs)
+                                queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
+                            else:
+                                queue = None
+                    else:
+                        queue = q_builder.build_mining_queue(resource)
+
                     if queue is None:
                         queue = q_builder.build_recharge_queue()
 
@@ -437,18 +544,75 @@ class Agent():
                     # if you have a queue, add the next position to occupied_next
                     self.add_nextpos_to_occnext(unit)
 
+        # FACTORIES
         for fid, factory in factories.items():
             # For now, just build a HEAVY unit if you can, soon this will go in self.factory_construct or similar
             # I'm thinking these will be the factory functions: factory_construct, factory_water, factory_state
             f_pos = (factory.pos[0], factory.pos[1])
             if f_pos not in self.occupied_next:
-                if factory.can_build_heavy(game_state) and factory.unit_id in self.factory_needs:
+                if factory.can_build_heavy(game_state) and factory.unit_id in self.factory_needs_heavy:
                     queue = factory.build_heavy()
                     self.update_queues(factory, queue)
+                    continue
 
-                elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs and self.step % 50 == 0:
+                elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
                     queue = factory.build_light()
                     self.update_queues(factory, queue)
+                    continue
+            # WATER
+            if factory.cargo.water > 50 and game_state.real_env_steps <= 100:
+                if factory.cargo.water >= 120:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+                elif game_state.real_env_steps % 3 != 0:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+            if factory.cargo.water > 50 and 100 < game_state.real_env_steps < 750:
+                power = factory.power
+                if power > 5000:
+                    continue
+                if factory.cargo.water > 200:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+                if factory.cargo.water > 100 and game_state.real_env_steps % 3 != 0:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+                if factory.cargo.water > 50 and game_state.real_env_steps % 2 == 0:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+            elif 750 <= game_state.real_env_steps < 980:
+                steps_remaining = 1000 - game_state.real_env_steps
+                if factory.cargo.water > steps_remaining * 6:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+                if factory.cargo.water > 400:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+                if factory.cargo.water > 200 and game_state.real_env_steps % 3 != 0:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+                elif factory.cargo.water > 50 and game_state.real_env_steps % 2 == 0:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+            elif 980 <= game_state.real_env_steps < 996:
+                if factory.cargo.water > 50:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
+            elif game_state.real_env_steps >= 996:
+                if factory.cargo.water > 30:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    continue
 
         # Finalize the action queue and submit it
         finalized_actions = self.finalize_new_queue()
