@@ -170,8 +170,6 @@ class Agent():
 
                 # if the next position is already occupied, clear the action queue
                 if new_pos in self.occupied_next:
-                    print(f'Step {self.step}: Unit {unit.unit_id} is moving to occupied tile! {new_pos}',
-                          file=sys.stderr)
                     q_builder = QueueBuilder(self, unit, [], self.obs)
                     q_builder.clear_mining_dibs()
                     self.action_queue[unit.unit_id] = []
@@ -186,8 +184,6 @@ class Agent():
                 if queue[0][0] == 0:
                     next_pos = next_position(unit.pos, queue[0][1])
                     new_pos = (next_pos[0], next_pos[1])
-                    print(f"Step {self.step}: Unit {unit.unit_id} is moving to {new_pos}. add_next_pos_to_occnext",
-                          file=sys.stderr)
                 # otherwise, next_pos is the current position
                 else:
                     new_pos = (unit.pos[0], unit.pos[1])
@@ -342,27 +338,35 @@ class Agent():
             # # if so, then I need to go help them
 
             # figure out what tasks are already being done
-            light_tasks = []
-            light_tasks_being_done = self.factory_tasks_light[fid]
-            for uid, task in light_tasks_being_done.items():
+            light_tasks_being_done = []
+            for uid, task in self.factory_tasks_light[fid].items():
                 if task:
-                    light_tasks.append(task)
-            heavy_tasks = []
-            heavy_task_dict = self.factory_tasks_heavy[fid]
-            for uid, task in heavy_task_dict.items():
+                    light_tasks_being_done.append(task)
+            heavy_tasks_being_done = []
+            for uid, task in self.factory_tasks_heavy[fid].items():
                 if task:
-                    heavy_tasks.append(task)
+                    heavy_tasks_being_done.append(task)
 
             # remove tasks that are already being done from the list of tasks that need to be done
-            light_todo = [task for task in light_todo if task not in light_tasks]
-            heavy_todo = [task for task in heavy_todo if task not in heavy_tasks]
-            if light_todo:
-                self.factory_needs_light[fid] = light_todo
-            elif not light_todo:
+            light_tasks_needed = light_todo.copy()  # Create a copy of light_todo to avoid modifying the original list
+            for task in light_tasks_being_done:
+                if task in light_tasks_needed:
+                    light_tasks_needed.remove(task)
+
+            heavy_tasks_needed = heavy_todo.copy()  # Create a copy of light_todo to avoid modifying the original list
+            for task in heavy_tasks_being_done:
+                if task in heavy_tasks_needed:
+                    heavy_tasks_needed.remove(task)
+
+            print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
+            if light_tasks_needed:
+                self.factory_needs_light[fid] = light_tasks_needed
+            elif not light_tasks_needed:
                 del self.factory_needs_light[fid]
-            if heavy_todo:
-                self.factory_needs_heavy[fid] = heavy_todo
-            elif not heavy_todo:
+            if heavy_tasks_needed:
+                self.factory_needs_heavy[fid] = heavy_tasks_needed
+            elif not heavy_tasks_needed:
                 del self.factory_needs_heavy[fid]
 
     # TODO: This is actually for setting up the queue for a unit that needs to clear rubble
@@ -379,11 +383,57 @@ class Agent():
         else:
             factory_needs = self.factory_needs_heavy
         if len(factory_needs[fid]) > 1:
+
             factory_needs[fid] = factory_needs[fid][1:]
         else:
-            print(f"Step {self.step}: {fid} has no more needs, deleting from {factory_needs}", file=sys.stderr)
             del factory_needs[fid]
-            print(f"Step {self.step}: {fid} factory_needs is now {factory_needs}", file=sys.stderr)
+
+    def light_mining_decision(self, task_factory, q_builder):
+        q_builder.clear_mining_dibs()
+        q_builder.clear_previous_task()
+
+        # for now, just mine factory_needs in order, but this will be more complex later
+        if task_factory.unit_id in self.factory_needs_light.keys():
+            resource = self.factory_needs_light[task_factory.unit_id][0]
+            self.pop_factory_needs(task_factory, light=True)
+        else:
+            print(f"Step {self.step}: No light needs for factory {task_factory.unit_id}",
+                  file=sys.stderr)
+            resource = "lichen"
+
+        if resource == "rubble":
+            off_limits = deepcopy(self.my_factory_tiles)
+            dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
+            heavy_dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
+            dibbed_tiles.extend(heavy_dibbed_tiles)
+
+            primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.obs)
+            zone_cost = get_total_rubble(self.obs, primary_zone)
+            if zone_cost > 0:
+                lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, dibbed_tiles, self.obs)
+                if lowest_rubble_pos is None:
+                    lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
+            else:
+                off_limits_or_dibbed = deepcopy(list(self.occupied_next))
+                off_limits_or_dibbed.extend(dibbed_tiles)
+                positions_to_clear = next_positions_to_clear(self.obs, task_factory.strain_id,
+                                                             self.opp_strains,
+                                                             off_limits=off_limits_or_dibbed)
+                if len(positions_to_clear) > 0:
+                    # TODO: currently this doesn't take into account mining dibs
+                    lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.obs)
+                    if lowest_rubble_pos is None:
+                        lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                    queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
+                else:
+                    close_rubble_tile = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                    queue = q_builder.build_mining_queue(resource, rubble_tile=close_rubble_tile)
+        elif resource == "lichen":
+            queue = None
+        else:
+            queue = q_builder.build_mining_queue(resource)
+        return queue
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         # initial step setup, these are the basic vars that we need to have
@@ -394,7 +444,6 @@ class Agent():
         all_factories = factories | opp_factories
         units = game_state.units[self.player]
         opp_units = game_state.units[self.opp_player]
-        print(f"Step: {step}: timing", file=sys.stderr)
         # global vars
         self.step = game_state.real_env_steps
         self.my_units = units
@@ -411,6 +460,10 @@ class Agent():
         # Factory updates
         self.factory_types = dict()  # Clear out the factory types from last step
         self.factory_needs = dict()  # Clear out the factory needs from last step
+
+        print(f"Step: {self.step}: timing", file=sys.stderr)
+        # if self.step == 100:
+        #     print('f')
 
         # Set opp_strains
         if self.step == 2:
@@ -483,17 +536,22 @@ class Agent():
                 self.unit_states[unit.unit_id] = "idle"
 
             self.avoid_collisions(unit)  # make sure you aren't going to collide with a friendly unit
-            closest_factory = get_closest_factory(factories, unit.pos)
-            q_builder = QueueBuilder(self, unit, closest_factory, obs)
+
+            task_factory = get_closest_factory(factories, unit.pos)
+            for factory_id, units in self.factory_tasks_light.items():
+                if unit.unit_id in units and factory_id in factories.keys():
+                    task_factory = factories[factory_id]
+            q_builder = QueueBuilder(self, unit, task_factory, obs)
 
             # Check for evasions now that we have come up with our final queue and any interrupts
-            evasion_queue = evasion_check(self, unit, closest_factory, opp_units, obs)
+            evasion_queue = evasion_check(self, unit, task_factory, opp_units, obs)
             if evasion_queue is not None:
                 self.update_queues(unit, evasion_queue)
                 continue
 
             need_recharge = q_builder.check_need_recharge()
             state = self.unit_states[unit.unit_id]
+
             if need_recharge and state != "recharging" and state != "low battery":
                 q_builder.clear_mining_dibs()
                 queue = q_builder.build_recharge_queue()
@@ -501,41 +559,11 @@ class Agent():
             else:  # if you don't need to recharge
                 # if you don't have a queue, build one
                 if len(self.action_queue[unit.unit_id]) == 0:
-                    q_builder.clear_mining_dibs()
-                    q_builder.clear_previous_task()
-
-                    # for now, just mine factory_needs in order, but this will be more complex later
-                    if closest_factory.unit_id in self.factory_needs_light.keys():
-                        resource = self.factory_needs_light[closest_factory.unit_id][0]
-                        self.pop_factory_needs(closest_factory, light=True)
-                    else:
-                        print(f"Step {self.step}: No light needs for factory {closest_factory.unit_id}, mining ice",
-                              file=sys.stderr)
-                        resource = "ice"
-
-                    if resource == "rubble":
-                        off_limits = deepcopy(self.my_factory_tiles)
-                        primary_zone = get_orthogonal_positions(closest_factory.pos, 1, off_limits, self.obs)
-                        zone_cost = get_total_rubble(self.obs, primary_zone)
-                        if zone_cost > 0:
-                            print(f"Step {self.step}: Mining rubble in primary zone: {primary_zone}", file=sys.stderr)
-                            lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, self.obs)
-                            queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
-                        else:
-                            off_limits_or_dibbed = deepcopy(list(self.occupied_next))
-                            off_limits_or_dibbed.extend(self.light_mining_dibs.values())
-                            positions_to_clear = next_positions_to_clear(self.obs, closest_factory.strain_id,
-                                                                         self.opp_strains,
-                                                                         off_limits=off_limits_or_dibbed)
-                            if len(positions_to_clear) > 0:
-                                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, self.obs)
-                                queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
-                            else:
-                                queue = None
-                    else:
-                        queue = q_builder.build_mining_queue(resource)
+                    queue = self.light_mining_decision(task_factory, q_builder)
 
                     if queue is None:
+                        print(f"Step {self.step}: {unit.unit_id} has no queue, building recharge queue", file=sys.stderr)
+                        # This would be attack or something
                         queue = q_builder.build_recharge_queue()
 
                     # update the action queue, this adds new_pos to occupied_next

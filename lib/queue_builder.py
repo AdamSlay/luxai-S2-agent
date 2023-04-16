@@ -41,7 +41,7 @@ class QueueBuilder:
             tile_amount = None
 
         if resource_tile is None:
-            print(f"Unit {self.unit.unit_id} can't find a resource tile!", file=sys.stderr)
+            print(f"{self.unit.unit_id} can't find a resource tile!", file=sys.stderr)
             # can't find a resource, return None and get back into the decision tree
             return None
         dibs[self.unit.unit_id] = resource_tile
@@ -69,6 +69,13 @@ class QueueBuilder:
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
         pathing_cost = cost_to_resource + cost_from_resource + reserve_power
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
+        if rubble_tile is not None:
+            # if you are mining rubble, you just need enough power to clear the tile (at a minimum)
+            # but if the tile has a ton of rubble, just use the regular dig allowance
+            dig_rate = 20 if self.unit.unit_type == "HEAVY" else 2
+            dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
+            rubble_dig_allowance = ((tile_amount // dig_rate) + 1) * dig_cost
+            dig_allowance = rubble_dig_allowance if rubble_dig_allowance < dig_allowance else dig_allowance
 
         if self.unit.power < pathing_cost + dig_allowance:
             return self.build_recharge_queue()

@@ -198,6 +198,22 @@ def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, ob
     target_tile = tile_locations[np.argmin(tile_distances)]
     return target_tile
 
+def closest_rubble_tile(start: np.ndarray, off_limits: list, obs):
+    """Finds the closest rubble tile to the unit that is not occupied by a unit or a factory"""
+    tile_map = deepcopy(obs["board"]["rubble"])
+    for pos in off_limits:
+        x = int(pos[0])
+        y = int(pos[1])
+        if x < 48 and y < 48:
+            tile_map[x][y] = 0
+    tile_locations = np.argwhere(((tile_map <= 40) & (tile_map > 0)))
+    tile_distances = np.mean((tile_locations - start) ** 2, 1)
+    if np.min(tile_distances) >= 20:
+        tile_locations = np.argwhere(tile_map > 0)
+        tile_distances = np.mean((tile_locations - start) ** 2, 1)
+    target_tile = tile_locations[np.argmin(tile_distances)]
+    return target_tile
+
 
 def find_new_direction(position: np.ndarray, target: np.ndarray, off_limits: list) -> int:
     #  direction (0 = center, 1 = up, 2 = right, 3 = down, 4 = left)

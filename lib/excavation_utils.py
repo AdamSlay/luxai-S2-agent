@@ -47,9 +47,16 @@ def next_positions_to_clear(obs, strain_id, opp_strains, off_limits):
     return np.array(positions_to_clear)
 
 
-def get_position_with_lowest_rubble(positions_to_clear, obs):
+def get_position_with_lowest_rubble(positions_to_clear, off_limits, obs):
+    positions_to_clear = [(pos[0], pos[1]) for pos in positions_to_clear]
+    off_limits = [(pos[0], pos[1]) for pos in off_limits]
+
+    # Filter out off-limits positions
+    filtered_positions_to_clear = [pos for pos in positions_to_clear if pos not in off_limits]
     rubble_map = obs["board"]["rubble"]
-    rubble_values = [rubble_map[x, y] for x, y in positions_to_clear if rubble_map[x, y] > 0]
+    rubble_values = [rubble_map[x, y] for x, y in filtered_positions_to_clear if rubble_map[x, y] > 0]
+    if len(rubble_values) == 0:
+        return None
     min_rubble_index = np.argmin(rubble_values)
     return positions_to_clear[min_rubble_index]
 
