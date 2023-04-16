@@ -11,7 +11,7 @@ class QueueBuilder:
         self.target_factory = target_factory
         self.obs = deepcopy(obs)
 
-    def build_mining_queue(self, resource: str, rubble_tile=None) -> list or None:
+    def build_mining_queue(self, resource: str, rubble_tile=None, lichen_tile=None) -> list or None:
         self.agent.unit_states[self.unit.unit_id] = "mining"
         self.clear_mining_dibs()
         self.clear_previous_task()
@@ -31,13 +31,26 @@ class QueueBuilder:
             dibs_tiles.extend(heavy_dibs)
         else:
             factory_tasks_weight_class = self.agent.factory_tasks_heavy
+            # if you're digging rubble or lichen, avoid the lights that are doing the same
+            # you might accidentally mine a tile that a light finished off while you were moving
+            # plus it avoids congestion while digging rubble/lichen
+            if rubble_tile is not None or lichen_tile is not None:
+                light_dibs = [tile for uid, tile in self.agent.light_mining_dibs.items()]
+                dibs_tiles.extend(light_dibs)
 
+        target_factory = self.target_factory
         if rubble_tile is not None:
             resource_tile = rubble_tile
             tile_amount = self.obs["board"]["rubble"][resource_tile[0]][resource_tile[1]]
-            print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is mining rubble at {resource_tile}, tile_amt = {tile_amount}!", file=sys.stderr)
+            print(
+                f"Step {self.agent.step}: Unit {self.unit.unit_id} is mining rubble at {resource_tile}, tile_amt = {tile_amount}!",
+                file=sys.stderr)
+        elif lichen_tile is not None:
+            resource_tile = lichen_tile
+            tile_amount = self.obs["board"]["lichen"][resource_tile[0]][resource_tile[1]]
+            target_factory = get_closest_factory(self.agent.my_factories, resource_tile)
         else:
-            resource_tile = closest_resource_tile(resource, self.unit.pos, dibs_tiles, self.obs)
+            resource_tile = closest_resource_tile(resource, target_factory.pos, dibs_tiles, self.obs)
             tile_amount = None
 
         if resource_tile is None:
@@ -59,7 +72,7 @@ class QueueBuilder:
 
         # avoid heavies when looking for a return tile
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
-        return_tile = closest_factory_tile(self.target_factory.pos, resource_tile, heavies)
+        return_tile = closest_factory_tile(target_factory.pos, resource_tile, heavies)
 
         # path from and cost from resource
         path_from_resource = self.get_path_positions(resource_tile, return_tile)
@@ -69,40 +82,59 @@ class QueueBuilder:
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
         pathing_cost = cost_to_resource + cost_from_resource + reserve_power
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
+        dig_rate = 20 if self.unit.unit_type == "HEAVY" else 2
+        dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
         if rubble_tile is not None:
             # if you are mining rubble, you just need enough power to clear the tile (at a minimum)
             # but if the tile has a ton of rubble, just use the regular dig allowance
-            dig_rate = 20 if self.unit.unit_type == "HEAVY" else 2
+            rubble_dig_allowance = ((tile_amount // dig_rate) + 1) * dig_cost
+            dig_allowance = rubble_dig_allowance if rubble_dig_allowance < dig_allowance else dig_allowance
+
+        if lichen_tile is not None:
+            dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
             dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
             rubble_dig_allowance = ((tile_amount // dig_rate) + 1) * dig_cost
             dig_allowance = rubble_dig_allowance if rubble_dig_allowance < dig_allowance else dig_allowance
 
         if self.unit.power < pathing_cost + dig_allowance:
-            return self.build_recharge_queue()
+            return self.build_recharge_queue(factory=target_factory)
 
         if len(path_to_resource) > 1:
             moves_to_resource = self.get_path_moves(path_to_resource)
             queue.extend(moves_to_resource)
 
         digs = self.get_number_of_digs(self.unit.power, pathing_cost, tile_amt=tile_amount)
+        # make sure you aren't going to overfill your cargo
+        if resource == "ice" or resource == "ore":
+            if resource == "ice":
+                cargo = self.unit.cargo.ice
+            else:
+                cargo = self.unit.cargo.ore
+            cargo_space = 1000 if self.unit.unit_type == "HEAVY" else 150
+            max_digs = (cargo_space - cargo) // dig_rate
+            digs = digs if digs < max_digs else max_digs
         queue.append(self.unit.dig(n=digs))
 
-        factory_tasks_weight_class[self.target_factory.unit_id][self.unit.unit_id] = resource
+        factory_tasks_weight_class[target_factory.unit_id][self.unit.unit_id] = resource
 
         if len(queue) > 20:
             queue = queue[:20]
         return queue
 
-    def build_recharge_queue(self, occupied=None) -> list:
+    def build_recharge_queue(self, occupied=None, factory=None) -> list:
         # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
         self.agent.unit_states[self.unit.unit_id] = "recharging"
         self.clear_mining_dibs()
         self.clear_previous_task()
+        target_factory = self.target_factory
+        if factory is not None:
+            target_factory = factory
+
         queue = []
 
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
-        return_tile = closest_factory_tile(self.target_factory.pos, self.unit.pos, heavies)
-        pickup_amt = self.get_pickup_amt(self.target_factory)
+        return_tile = closest_factory_tile(target_factory.pos, self.unit.pos, heavies)
+        pickup_amt = self.get_pickup_amt(target_factory)
 
         pos = (self.unit.pos[0], self.unit.pos[1])
         in_position = on_tile(self.unit.pos, return_tile)
@@ -125,7 +157,8 @@ class QueueBuilder:
         cost_home = self.get_path_cost(path_home)
         if self.unit.power < cost_home:
             if self.agent.unit_states[self.unit.unit_id] == "evasion recharge":
-                print(f"Unit {self.unit.unit_id} is performing evasion recharge and doesn't have enough battery", file=sys.stderr)
+                print(f"Unit {self.unit.unit_id} is performing evasion recharge and doesn't have enough battery",
+                      file=sys.stderr)
 
                 next_pos = path_home[1]
                 cost_to_next = self.get_path_cost([next_pos])
@@ -188,7 +221,8 @@ class QueueBuilder:
             queue = [self.unit.move(0, n=50)]
         else:
             direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
-            print(f"Unit {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}", file=sys.stderr)
+            print(f"Unit {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}",
+                  file=sys.stderr)
             queue = [self.unit.move(direction), self.unit.move(0, n=50)]
         return queue
 
@@ -203,7 +237,9 @@ class QueueBuilder:
             self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
             queue = self.build_recharge_queue(avoid_positions)
             if len(queue) == 0:
-                print(f"Step {self.agent.step}: {self.unit.unit_id} couldn't find a recharge path that avoids positions", file=sys.stderr)
+                print(
+                    f"Step {self.agent.step}: {self.unit.unit_id} couldn't find a recharge path that avoids positions",
+                    file=sys.stderr)
                 queue = self.build_recharge_queue(self.agent.occupied_next)
             return queue
 
@@ -215,7 +251,8 @@ class QueueBuilder:
             # If you're in a precarious situation, retreat
             direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
             if direction == 0:
-                print(f"Step {self.agent.step}: {self.unit.unit_id} coulnd't find direction while avoiding positions", file=sys.stderr)
+                print(f"Step {self.agent.step}: {self.unit.unit_id} coulnd't find direction while avoiding positions",
+                      file=sys.stderr)
                 # if you can't find a direction while avoiding threats, try to find a direction without avoiding threats
                 direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
             queue = [self.unit.move(direction)]

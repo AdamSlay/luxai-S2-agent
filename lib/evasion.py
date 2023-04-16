@@ -48,9 +48,8 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
             avoid_these_tiles.add((opp_unit.pos[0], opp_unit.pos[1]))
 
     # # if you are out of power, recharge
-    closest_factory = get_closest_factory(self.my_factories, unit.pos)
-    q_builder = QueueBuilder(self, unit, closest_factory, obs)
-    path_home = q_builder.get_path_positions(unit.pos, closest_factory.pos, occupied=avoid_positions)
+    q_builder = QueueBuilder(self, unit, target_factory, obs)
+    path_home = q_builder.get_path_positions(unit.pos, target_factory.pos, occupied=avoid_positions)
     cost_home = q_builder.get_path_cost(path_home)
 
     # if you're evading, but out of power, reset the queue so that you can recharge
@@ -150,34 +149,6 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
 
         # if you have enough power for the first move, queue it up
         queue = [unit.move(direction)]
-
-        # if the direction is center, you can build the rest of the queue
-        # if direction == 0:
-        #     # HEAVIES
-        #     title = self.all_unit_titles[unit.unit_id]
-        #     if title == "homer":
-        #         queue.extend(self.homer_actions(unit, target_factory, obs))
-        #     elif title == "icer":
-        #         queue.extend(self.icer_actions(unit, target_factory, self.my_heavy_units, obs))
-        #     elif title == "attacker":
-        #         queue.extend(self.attacker_actions(unit, target_factory, obs))
-        #     elif title == "sentry":
-        #         queue.extend(self.sentry_actions(unit, target_factory, obs))
-        #     elif title == "roamer":
-        #         queue.extend(self.roamer_actions(unit, target_factory, obs))
-        #     # LIGHTS
-        #     elif title == "helper":
-        #         queue.extend(self.helper_actions(unit, target_factory, self.my_units, obs))
-        #     elif title == "icer helper":
-        #         queue.extend(self.icer_helper_actions(unit, target_factory, self.my_units, obs))
-        #     elif title == "miner":
-        #         queue.extend(self.miner_actions(unit, target_factory, obs))
-        #     elif title == "rumbler":
-        #         queue.extend(self.rumbler_actions(unit, target_factory, obs))
-        #     elif title == "icer light":
-        #         queue.extend(self.light_icer_actions(unit, target_factory, obs))
-        #     elif title == "light attacker":
-        #         queue.extend(self.light_attacker_actions(unit, target_factory, obs))
         if len(queue) > 20:
             queue = queue[:20]
         return queue

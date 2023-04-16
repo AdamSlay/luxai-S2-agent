@@ -409,6 +409,11 @@ class Agent():
                 # # if not, then I need to mine ice
                 heavy_todo.append("ice")
 
+            # are you dangerously low on water?
+            if factory.cargo.water < 150 and number_of_ice > 1:
+                emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
+                [heavy_todo.append("ice") for _ in range(emergency_ice_miners)]
+
             # if I have enough water to grow lichen, am I super clogged up with rubble?
             if lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10):
                 # # if so, then I need to excavate either a clearing path or immediate zone
@@ -543,6 +548,58 @@ class Agent():
             return None
         return self.my_factories[closest_factory_id]
 
+    def rubble_digging_task_assignment(self, q_builder, resource, task_factory, light=False):
+        off_limits = deepcopy(self.my_factory_tiles)
+        dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
+        if light:
+            light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
+            dibbed_tiles.extend(light_dibbed_tiles)
+
+        primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.obs)
+        zone_cost = get_total_rubble(self.obs, primary_zone)
+        if zone_cost > 0:
+            lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, dibbed_tiles, self.obs)
+            if lowest_rubble_pos is None:
+                lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+            queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
+        else:
+            off_limits_or_dibbed = deepcopy(list(self.occupied_next))
+            off_limits_or_dibbed.extend(dibbed_tiles)
+            positions_to_clear = next_positions_to_clear(self.obs, task_factory.strain_id,
+                                                         self.opp_strains,
+                                                         off_limits=off_limits_or_dibbed)
+            if len(positions_to_clear) > 0:
+                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.obs)
+                if lowest_rubble_pos is None:
+                    lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
+            else:
+                close_rubble_tile = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                queue = q_builder.build_mining_queue(resource, rubble_tile=close_rubble_tile)
+
+        return queue
+
+    def trailblazing_task_assignment(self, q_builder, _task, task_factory, light=False):
+        # TODO: create function out of this
+        dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
+        if light:
+            light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
+            dibbed_tiles.extend(light_dibbed_tiles)
+        if _task == "ore path":
+            path_to_ore = self.ore_paths[task_factory.unit_id]
+            closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_ore, self.obs)
+            if closest_path_pos is None:
+                closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+            queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+            return queue
+        else:  # it's a clearing path
+            path_to_clear = self.clearing_paths[task_factory.unit_id]
+            closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_clear, self.obs)
+            if closest_path_pos is None:
+                closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+            queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+            return queue
+
     def mining_decision(self, task_factory, q_builder, light=False):
         if light:
             factory_needs = self.factory_needs_light
@@ -582,74 +639,41 @@ class Agent():
                     self.pop_factory_needs(task_factory, light=light, reverse=True)
 
             else:
+                # if there are no factories in need, attack
                 _task = "lichen"
 
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
+        attacking = ["lichen", "aggro"]
+
+        # Mining tasks
         if _task in resources:
             resource = _task
+            if resource == "rubble":
+                queue = self.rubble_digging_task_assignment(q_builder, resource, task_factory, light=light)
+            else:  # it's a resource
+                queue = q_builder.build_mining_queue(resource)
+            return queue
+
+        # Pathing tasks
         elif _task in pathing:
-            # TODO: create function out of this
+            queue = self.trailblazing_task_assignment(q_builder, _task, task_factory, light=light)
+            return queue
+
+        # Attacking tasks
+        else:
             dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
-            if light:
-                light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
-                dibbed_tiles.extend(light_dibbed_tiles)
-            if _task == "ore path":
-                path_to_ore = self.ore_paths[task_factory.unit_id]
-                closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_ore, self.obs)
-                if closest_path_pos is None:
-                    closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-                queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
-                return queue
-            else:  # it's a clearing path
-                path_to_clear = self.clearing_paths[task_factory.unit_id]
-                closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_clear, self.obs)
-                if closest_path_pos is None:
-                    closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-                queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+            dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
+            lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.obs, priority=True)
+            if lichen_tile is not None:
+                queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
                 return queue
 
-        else:  # it's an attack
-            print(
-                f"Step {self.step}: Factory {task_factory.unit_id} _task {_task} is not in resources, and can't find qeueu",
-                file=sys.stderr)
-            return None
-
-        if resource == "rubble":
-            # TODO: Create function out of this
-            off_limits = deepcopy(self.my_factory_tiles)
-            dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
-            if light:
-                light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
-                dibbed_tiles.extend(light_dibbed_tiles)
-
-            primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.obs)
-            zone_cost = get_total_rubble(self.obs, primary_zone)
-            if zone_cost > 0:
-                lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, dibbed_tiles, self.obs)
-                if lowest_rubble_pos is None:
-                    lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-                queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
-            else:
-                off_limits_or_dibbed = deepcopy(list(self.occupied_next))
-                off_limits_or_dibbed.extend(dibbed_tiles)
-                positions_to_clear = next_positions_to_clear(self.obs, task_factory.strain_id,
-                                                             self.opp_strains,
-                                                             off_limits=off_limits_or_dibbed)
-                if len(positions_to_clear) > 0:
-                    lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.obs)
-                    if lowest_rubble_pos is None:
-                        lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-                    queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
-                else:
-                    close_rubble_tile = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-                    queue = q_builder.build_mining_queue(resource, rubble_tile=close_rubble_tile)
-        elif resource == "lichen":
-            # TODO: build attack queue
-            queue = None
-        else:  # it's a resource
-            queue = q_builder.build_mining_queue(resource)
-        return queue
+        # if you made it here, you couldn't find a lichen tile
+        print(
+            f"Step {self.step}: Factory {task_factory.unit_id} _task {_task} is not in resources, and can't find qeueu",
+            file=sys.stderr)
+        return None
 
     def decision_tree(self, unit, factories, opp_units, obs):
         if unit.unit_type == "LIGHT":

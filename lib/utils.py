@@ -234,12 +234,51 @@ def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: lis
     if len(group_set) == 0:
         return None
     group_list = list(group_set)
-    group_rubble_tiles = np.array([np.array([f[0], f[1]]) for f in group_list if obs["board"]["rubble"][f[0], f[1]] > 0])
+    group_rubble_tiles = np.array(
+        [np.array([f[0], f[1]]) for f in group_list if obs["board"]["rubble"][f[0], f[1]] > 0])
     if len(group_rubble_tiles) == 0:
         return None
     group_distances = np.mean((group_rubble_tiles - start) ** 2, 1)
     target_tile = group_rubble_tiles[np.argmin(group_distances)]
     return target_tile
+
+
+def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, priority=False, tile_amount=0):
+    lichen_tiles = deepcopy(obs["board"]["lichen_strains"])
+    lichen_amounts = deepcopy(obs["board"]["lichen"])
+    for pos in off_limits:
+        x = int(pos[0])
+        y = int(pos[1])
+        if x < 48 and y < 48:
+            lichen_tiles[x, y] = 1000  # this is a null value for the lichen strains
+    if priority:
+        priority_strain = find_most_common_integer(lichen_tiles, opp_strains)
+        tile_locations = np.argwhere((np.isin(lichen_tiles, priority_strain) & (lichen_amounts > tile_amount)))
+    else:
+        tile_locations = np.argwhere((np.isin(lichen_tiles, opp_strains) & (lichen_amounts > tile_amount)))
+    if len(tile_locations) == 0:
+        return None
+    tile_distances = [distance_to(start, tile) for tile in tile_locations]
+    target_tile = tile_locations[np.argmin(tile_distances)]
+    if target_tile is None:
+        return None
+    return np.array(target_tile)
+
+
+def find_most_common_integer(lichen_strain_map, opp_strains):
+    all_strains, counts = np.unique(lichen_strain_map, return_counts=True)
+
+    # Filter the unique_elements and counts arrays based on integers_of_interest
+    opp_strain_locations = np.isin(all_strains, opp_strains)
+    filtered_elements = all_strains[opp_strain_locations]
+    filtered_counts = counts[opp_strain_locations]
+    if len(filtered_elements) == 0:
+        return None
+
+    # Find the index of the highest count among the integers of interest
+    most_common_index = np.argmax(filtered_counts)
+    most_common_integer = filtered_elements[most_common_index]
+    return most_common_integer
 
 
 def find_new_direction(position: np.ndarray, target: np.ndarray, off_limits: list) -> int:
