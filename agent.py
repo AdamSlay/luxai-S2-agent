@@ -699,8 +699,7 @@ class Agent():
         if evasion_queue is not None:
             self.update_queues(unit, evasion_queue)
             return
-        # TODO: prefer to recharge at the task factory if it's close enough, otherwise recharge at the optimal factory
-        # if you can't make it to optimal factory, or you don't have a task factory, recharge at the closest factory
+
         need_recharge = q_builder.check_need_recharge()
         state = self.unit_states[unit.unit_id]
 
@@ -804,9 +803,10 @@ class Agent():
                     continue
 
                 elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
-                    queue = factory.build_light()
-                    self.update_queues(factory, queue)
-                    continue
+                    if self.factory_needs_light[factory.unit_id]:
+                        queue = factory.build_light()
+                        self.update_queues(factory, queue)
+                        continue
             self.factory_watering(factory, game_state)
 
         # Finalize the action queue and submit it

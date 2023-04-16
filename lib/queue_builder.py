@@ -46,10 +46,15 @@ class QueueBuilder:
                 f"Step {self.agent.step}: Unit {self.unit.unit_id} is mining rubble at {resource_tile}, tile_amt = {tile_amount}!",
                 file=sys.stderr)
         elif lichen_tile is not None:
+            self.agent.unit_states[self.unit.unit_id] = "attacking"
             resource_tile = lichen_tile
             tile_amount = self.obs["board"]["lichen"][resource_tile[0]][resource_tile[1]]
             target_factory = get_closest_factory(self.agent.my_factories, resource_tile)
         else:
+            if self.unit.unit_type == "HEAVY":
+                # if you're a heavy, don't swipe a mining tile form another heavy just because you have a lower uid than them
+                heavy_tiles = [u.pos for u in self.agent.my_heavy_units if u.unit_id != self.unit.unit_id]
+                dibs_tiles.extend(heavy_tiles)
             resource_tile = closest_resource_tile(resource, target_factory.pos, dibs_tiles, self.obs)
             tile_amount = None
 
@@ -103,9 +108,9 @@ class QueueBuilder:
             moves_to_resource = self.get_path_moves(path_to_resource)
             queue.extend(moves_to_resource)
 
-        digs = self.get_number_of_digs(self.unit.power, pathing_cost, tile_amt=tile_amount)
-        # make sure you aren't going to overfill your cargo
-        if resource == "ice" or resource == "ore":
+        digs = self.get_number_of_digs(self.unit.power, pathing_cost, tile_amt=tile_amount, dig_rate=dig_rate)
+        # make sure you aren't going to overfill your cargo, if you are transferring this queue, don't worry about it
+        if (resource == "ice" or resource == "ore") and not transfer_ready:
             if resource == "ice":
                 cargo = self.unit.cargo.ice
             else:
@@ -129,6 +134,7 @@ class QueueBuilder:
         target_factory = self.target_factory
         if factory is not None:
             target_factory = factory
+        # TODO: if you are attacking, find optimal factory to recharge at
 
         queue = []
 
@@ -137,13 +143,15 @@ class QueueBuilder:
         pickup_amt = self.get_pickup_amt(target_factory)
 
         pos = (self.unit.pos[0], self.unit.pos[1])
+        occupied_next = deepcopy(self.agent.occupied_next)
+        occupied_next.add((target_factory.pos[0], target_factory.pos[1]))
         in_position = on_tile(self.unit.pos, return_tile)
-        in_occupied = pos in self.agent.occupied_next
+        in_occupied = pos in occupied_next
         if in_position and not in_occupied:
             queue = [self.unit.pickup(4, pickup_amt)]
             return queue
         elif in_position and in_occupied:
-            direction = move_toward(self.unit.pos, return_tile, self.agent.occupied_next)
+            direction = move_toward(self.unit.pos, return_tile, occupied_next)
             queue = [self.unit.move(direction)]
             return queue
 
@@ -352,13 +360,15 @@ class QueueBuilder:
         if uid in self.agent.factory_tasks_heavy[fid].keys():
             del self.agent.factory_tasks_heavy[fid][uid]
 
-    def get_number_of_digs(self, power_remaining: int, total_movement_cost: int, tile_amt=None) -> int:
+    def get_number_of_digs(self, power_remaining: int, total_movement_cost: int, tile_amt=None, dig_rate=None) -> int:
         if self.unit.unit_type == "HEAVY":
             dig_cost = 60
-            dig_rate = 20
+            if dig_rate is None:
+                dig_rate = 20
         else:
             dig_cost = 5
-            dig_rate = 2
+            if dig_rate is None:
+                dig_rate = 2
         number_of_digs = (power_remaining - total_movement_cost) // dig_cost
         if tile_amt is not None:
             if tile_amt % dig_rate == 0:
