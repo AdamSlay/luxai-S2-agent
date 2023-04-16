@@ -268,13 +268,13 @@ class QueueBuilder:
             if self.unit.cargo.ore > 0:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
         else:
-            if self.unit.cargo.ice > 200 > self.target_factory.cargo.water:
+            if self.unit.cargo.ice > 100 > self.target_factory.cargo.water:
                 queue.append(self.unit.transfer(transfer_direction, 0, self.unit.cargo.ice))
-            elif self.unit.cargo.ice > 900:
+            elif self.unit.cargo.ice > 400:
                 queue.append(self.unit.transfer(transfer_direction, 0, self.unit.cargo.ice))
             if self.unit.cargo.ore > 0 and self.target_factory.cargo.metal < 100:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
-            elif self.unit.cargo.ore > 500:
+            elif self.unit.cargo.ore > 400:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
         return queue
 

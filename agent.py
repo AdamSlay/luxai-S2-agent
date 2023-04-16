@@ -400,12 +400,12 @@ class Agent():
 
             # HEAVIES
             # if it's early in the game, and I'm safe on water, do I have enough ore to build bots?
-            if self.step < 300 and factory.cargo.water > 100 and number_of_ore > 0:
+            if self.step < 200 and factory.cargo.water > 100 and number_of_ore > 0:
                 # # then I need to mine ore
                 heavy_todo.append("ore")
 
             # do I have enough water to grow lichen?
-            if factory.cargo.water < 1000 and number_of_ice > 0:
+            if factory.cargo.water < 1500 and number_of_ice > 0:
                 # # if not, then I need to mine ice
                 heavy_todo.append("ice")
 
@@ -510,23 +510,46 @@ class Agent():
                 self.update_queues(factory, queue)
                 return
 
-    def pop_factory_needs(self, factory, light=True):
+    def pop_factory_needs(self, factory, light=True, reverse=False):
         fid = factory.unit_id
         if light:
             factory_needs = self.factory_needs_light
         else:
             factory_needs = self.factory_needs_heavy
         if len(factory_needs[fid]) > 1:
-
-            factory_needs[fid] = factory_needs[fid][1:]
+            if reverse:
+                factory_needs[fid] = factory_needs[fid][::-1]
+            else:
+                factory_needs[fid] = factory_needs[fid][1:]
         else:
             del factory_needs[fid]
+
+    def find_closest_factory_with_needs(self, factory, factory_needs):
+        current_factory_position = factory.pos
+        closest_distance = float('inf')
+        closest_factory_id = None
+
+        for factory_id, needs in factory_needs.items():
+            # check if the factory has needs and that it is still alive
+            if needs and factory_id in self.my_factories.keys():
+                other_factory_position = self.my_factories[factory_id].pos
+                distance = distance_to(current_factory_position, other_factory_position)
+
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_factory_id = factory_id
+
+        if closest_factory_id is None:
+            return None
+        return self.my_factories[closest_factory_id]
 
     def mining_decision(self, task_factory, q_builder, light=False):
         if light:
             factory_needs = self.factory_needs_light
+            tasks_being_done = self.factory_tasks_light
         else:
             factory_needs = self.factory_needs_heavy
+            tasks_being_done = self.factory_tasks_heavy
 
         q_builder.clear_mining_dibs()
         q_builder.clear_previous_task()
@@ -536,10 +559,30 @@ class Agent():
             _task = factory_needs[task_factory.unit_id][0]
             self.pop_factory_needs(task_factory, light=light)
         else:
-            # TODO: find out if other factories need help and switch to helping them
             print(f"Step {self.step}: No light needs for factory {task_factory.unit_id}",
                   file=sys.stderr)
-            _task = "lichen"
+            # check the other factories in order of nearness to this one and see if they need help
+            # if they do, switch to helping them
+            factory_in_need = self.find_closest_factory_with_needs(task_factory, factory_needs)
+            if factory_in_need is not None:
+                print(f"Step {self.step}: Switching to helping factory {factory_in_need.unit_id}", file=sys.stderr)
+                # make factory_in_need the new task_factory
+                task_factory = factory_in_need
+
+                # if the factory in need has less than 3 workers, do the first task available
+                # the idea is that the first 2 tasks are usually vital to the factory's survival
+                # we have to make sure those are getting done
+                if len(tasks_being_done[task_factory.unit_id]) < 3:
+                    _task = factory_needs[task_factory.unit_id][0]
+                    self.pop_factory_needs(task_factory, light=light)
+
+                # if the factory in need has more than 2 workers, do the last task available
+                else:
+                    _task = factory_needs[task_factory.unit_id][-1]
+                    self.pop_factory_needs(task_factory, light=light, reverse=True)
+
+            else:
+                _task = "lichen"
 
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
@@ -647,7 +690,7 @@ class Agent():
 
                 if queue is None:
                     print(f"Step {self.step}: {unit.unit_id} has no queue, building recharge queue", file=sys.stderr)
-                    # This would be attack or something
+                    # This would be attack or wait something
                     queue = q_builder.build_recharge_queue()
 
                 # update the action queue, this adds new_pos to occupied_next
