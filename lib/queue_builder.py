@@ -180,6 +180,18 @@ class QueueBuilder:
         queue = truncate_actions(queue)
         return queue
 
+    def build_waiting_queue(self) -> list:
+        self.agent.unit_states[self.unit.unit_id] = "waiting"
+        self.clear_mining_dibs()
+        self.clear_previous_task()
+        if can_stay(self.unit.pos, list(self.agent.occupied_next)):
+            queue = [self.unit.move(0, n=50)]
+        else:
+            direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
+            print(f"Unit {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}", file=sys.stderr)
+            queue = [self.unit.move(direction), self.unit.move(0, n=50)]
+        return queue
+
     def build_evasion_dance(self, avoid_positions, opp_unit=None):
         self.clear_previous_task()
         reserve_power = self.agent.low_reserve_power[self.unit.unit_type]

@@ -665,8 +665,8 @@ class Agent():
         self.avoid_collisions(unit)  # make sure you aren't going to collide with a friendly unit
 
         task_factory = get_closest_factory(factories, unit.pos)
-        for factory_id, units in factory_tasks.items():
-            if unit.unit_id in units and factory_id in factories.keys():
+        for factory_id, unit_tasks in factory_tasks.items():
+            if unit.unit_id in unit_tasks.keys() and factory_id in factories.keys():
                 task_factory = factories[factory_id]
         q_builder = QueueBuilder(self, unit, task_factory, obs)
 
@@ -675,7 +675,8 @@ class Agent():
         if evasion_queue is not None:
             self.update_queues(unit, evasion_queue)
             return
-
+        # TODO: prefer to recharge at the task factory if it's close enough, otherwise recharge at the optimal factory
+        # if you can't make it to optimal factory, or you don't have a task factory, recharge at the closest factory
         need_recharge = q_builder.check_need_recharge()
         state = self.unit_states[unit.unit_id]
 
@@ -685,13 +686,18 @@ class Agent():
             self.update_queues(unit, queue)
         else:  # if you don't need to recharge
             # if you don't have a queue, build one
-            if len(self.action_queue[unit.unit_id]) == 0:
+            if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting":
                 queue = self.mining_decision(task_factory, q_builder, light=is_light)
 
                 if queue is None:
-                    print(f"Step {self.step}: {unit.unit_id} has no queue, building recharge queue", file=sys.stderr)
+                    if state == "waiting" and can_stay(unit.pos, list(self.occupied_next)):
+                        # you were already waiting and nothing new came up
+                        # so just continue waiting and add your next pos to occupied_next
+                        self.add_nextpos_to_occnext(unit)
+                        return
+                    print(f"Step {self.step}: {unit.unit_id} has no queue, building waiting queue", file=sys.stderr)
                     # This would be attack or wait something
-                    queue = q_builder.build_recharge_queue()
+                    queue = q_builder.build_waiting_queue()
 
                 # update the action queue, this adds new_pos to occupied_next
                 self.update_queues(unit, queue)
