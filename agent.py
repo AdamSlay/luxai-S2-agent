@@ -1,6 +1,7 @@
 # import numpy as np
 # import sys
 
+from lib.dijkstra import dijkstras_path
 from lib.evasion import evasion_check
 from lib.excavation_utils import *
 from lib.factory_utils import *
@@ -48,6 +49,11 @@ class Agent():
 
         # paths
         self.low_rubble_scores = np.ndarray([])
+        self.ore_paths = dict()  # fid: [path]
+        self.clearing_paths = dict()  # fid: [path]
+        self.factory_clearing_tiles = dict()  # fid: [tile]
+        self.ore_path_costs = dict()  # fid: [cost]
+        self.clearing_path_costs = dict()  # fid: [cost]
 
         # States
         self.unit_states = dict()  # uid: "state"
@@ -81,6 +87,68 @@ class Agent():
             self.my_factory_centers.add((x, y))
 
         return queue
+
+    def set_ore_paths(self):
+        for fid, factory in self.my_factories.items():
+            self.ore_paths[fid] = []
+            print(f"finding ore path for factory {fid}", file=sys.stderr)
+            closest_ore = closest_resource_tile("ore", factory.pos, list(self.opp_factory_tiles), self.obs)
+            if closest_ore is not None:
+                ore_distance = distance_to(closest_ore, factory.pos)
+                if ore_distance < 20:
+                    rubble_map = self.obs['board']['rubble']
+                    ore_path = dijkstras_path(rubble_map, factory.pos, closest_ore, [], list(self.opp_factory_tiles),
+                                              rubble_threshold=60)
+                    if len(ore_path) > ore_distance * 2:
+                        ore_path = dijkstras_path(rubble_map, factory.pos, closest_ore, [],
+                                                  list(self.opp_factory_tiles),
+                                                  rubble_threshold=90)
+                    self.ore_paths[fid] = ore_path
+
+    def find_clearing_position(self, target_position, min_distance, max_distance):
+        best_coord = None
+        max_score = float('-inf')
+        for i in range(self.low_rubble_scores.shape[0]):
+            for j in range(self.low_rubble_scores.shape[1]):
+                current_coord = np.array([i, j])
+                distance = distance_to(target_position, current_coord)
+                if min_distance <= distance <= max_distance and self.low_rubble_scores[i, j] > max_score:
+                    max_score = self.low_rubble_scores[i, j]
+                    best_coord = current_coord
+        n = 5
+        x, y = best_coord
+        for i in range(-n, n + 1):
+            for j in range(-n, n + 1):
+                if abs(i) + abs(j) <= n and 0 <= x + i < self.low_rubble_scores.shape[0] and 0 <= y + j < \
+                        self.low_rubble_scores.shape[1]:
+                    self.low_rubble_scores[x + i, y + j] = 0
+        return best_coord
+
+    def set_clearing_paths(self):
+        for fid, factory in self.my_factories.items():
+            clearing_tile = self.factory_clearing_tiles[fid]
+            if clearing_tile is not None:
+                rubble_map = self.obs['board']['rubble']
+                ice_map = self.obs['board']['ice']
+                ore_map = self.obs['board']['ore']
+                resource_positions = np.column_stack(np.where((ice_map == 1) | (ore_map == 1)))
+                off_limits = [pos for pos in resource_positions]
+                off_limits.extend(list(self.opp_factory_tiles))
+                off_limits.extend(list(self.my_factory_tiles))
+
+                clearing_path = dijkstras_path(rubble_map, factory.pos, clearing_tile, [], off_limits,
+                                               rubble_threshold=100)
+                self.clearing_paths[fid] = clearing_path
+            if fid not in self.ore_paths.keys():
+                self.ore_paths[fid] = []
+
+    def set_ore_path_costs(self):
+        for fid, path in self.ore_paths.items():
+            self.ore_path_costs[fid] = get_path_cost(path, self.obs)
+
+    def set_clearing_path_costs(self):
+        for fid, path in self.clearing_paths.items():
+            self.clearing_path_costs[fid] = get_path_cost(path, self.obs)
 
     def pop_action_queue(self):
         new_actions = dict()
@@ -290,13 +358,30 @@ class Agent():
             heavy_todo = []
 
             # LIGHTS
+            # do I have a path to the nearest ore?
+            if self.step >= 2:
+                cost_to_ore = self.ore_path_costs[fid]
+                if cost_to_ore > 0:
+                    # if not, then I need to excavate a path to the nearest ore
+                    [light_todo.append("ore path") for _ in range(4)]
+
             # do I have room to grow lichen?
             needs_excavation = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
             primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
             zone_cost = get_total_rubble(self.obs, primary_zone)
             if needs_excavation or zone_cost > 0:
-                # # if not, then I need to excavate either a clearing path or immediate zone
-                [light_todo.append("rubble") for _ in range(4)]
+                if zone_cost == 0 and self.step >= 2:
+                    # check to see if clearing a path is necessary
+                    cost_to_clearing = self.clearing_path_costs[fid]
+                    if cost_to_clearing > 0:
+                        # if not, then I need to excavate a clearing path
+                        [light_todo.append("clearing path") for _ in range(4)]
+                    else:
+                        # if not, then I need to excavate immediate zone
+                        [light_todo.append("rubble") for _ in range(4)]
+                else:
+                    # # if not, then I need to excavate immediate zone
+                    [light_todo.append("rubble") for _ in range(4)]
 
             # if I have room to grow lichen, do I have enough water to grow lichen?
             if factory.cargo.water < 200 and number_of_ice >= 2:
@@ -448,15 +533,47 @@ class Agent():
 
         # for now, just mine factory_needs in order, but this will be more complex later
         if task_factory.unit_id in factory_needs.keys():
-            resource = factory_needs[task_factory.unit_id][0]
+            _task = factory_needs[task_factory.unit_id][0]
             self.pop_factory_needs(task_factory, light=light)
         else:
             # TODO: find out if other factories need help and switch to helping them
             print(f"Step {self.step}: No light needs for factory {task_factory.unit_id}",
                   file=sys.stderr)
-            resource = "lichen"
+            _task = "lichen"
+
+        resources = ["rubble", "ice", "ore"]
+        pathing = ["ore path", "clearing path"]
+        if _task in resources:
+            resource = _task
+        elif _task in pathing:
+            # TODO: create function out of this
+            dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
+            if light:
+                light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
+                dibbed_tiles.extend(light_dibbed_tiles)
+            if _task == "ore path":
+                path_to_ore = self.ore_paths[task_factory.unit_id]
+                closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_ore, self.obs)
+                if closest_path_pos is None:
+                    closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+                return queue
+            else:  # it's a clearing path
+                path_to_clear = self.clearing_paths[task_factory.unit_id]
+                closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_clear, self.obs)
+                if closest_path_pos is None:
+                    closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
+                queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+                return queue
+
+        else:  # it's an attack
+            print(
+                f"Step {self.step}: Factory {task_factory.unit_id} _task {_task} is not in resources, and can't find qeueu",
+                file=sys.stderr)
+            return None
 
         if resource == "rubble":
+            # TODO: Create function out of this
             off_limits = deepcopy(self.my_factory_tiles)
             dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
             if light:
@@ -470,7 +587,6 @@ class Agent():
                 if lowest_rubble_pos is None:
                     lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
                 queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
-            # TODO: create clearing and mining paths
             else:
                 off_limits_or_dibbed = deepcopy(list(self.occupied_next))
                 off_limits_or_dibbed.extend(dibbed_tiles)
@@ -486,8 +602,9 @@ class Agent():
                     close_rubble_tile = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
                     queue = q_builder.build_mining_queue(resource, rubble_tile=close_rubble_tile)
         elif resource == "lichen":
+            # TODO: build attack queue
             queue = None
-        else:
+        else:  # it's a resource
             queue = q_builder.build_mining_queue(resource)
         return queue
 
@@ -498,7 +615,6 @@ class Agent():
         else:
             is_light = False
             factory_tasks = self.factory_tasks_heavy
-
 
         if unit.unit_id not in self.unit_states.keys():
             self.unit_states[unit.unit_id] = "idle"
@@ -568,10 +684,16 @@ class Agent():
 
         print(f"Step: {self.step}: timing", file=sys.stderr)
 
-        # Set opp_strains
+        # Set opp_strains and paths
         if self.step == 2:
+            self.set_ore_paths()
+            self.set_clearing_paths()
             for fid, factory in opp_factories.items():
                 self.opp_strains.append(factory.strain_id)
+
+        if self.step >= 2:
+            self.set_ore_path_costs()
+            self.set_clearing_path_costs()
 
         for fid, factory in factories.items():
             # Update the factory's resources, these are the resources which the factory should have control over
@@ -595,7 +717,11 @@ class Agent():
 
         # FACTORIES
         for fid, factory in factories.items():
-            # For now, just build a HEAVY unit if you can, soon this will go in self.factory_construct or similar
+            if self.step == 1:
+                clearing_position = self.find_clearing_position(factory.pos, 8, 15)
+                if clearing_position is not None:
+                    self.factory_clearing_tiles[factory.unit_id] = clearing_position
+
             # I'm thinking these will be the factory functions: factory_construct, factory_water, factory_state
             f_pos = (factory.pos[0], factory.pos[1])
             if f_pos not in self.occupied_next:

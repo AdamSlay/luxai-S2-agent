@@ -11,7 +11,7 @@ def my_turn_to_place_factory(place_first: bool, step: int):
     return False
 
 
-def nearby_resources(center, ice_map, ore_map, factories, distance=10):
+def nearby_resources(center, ice_map, ore_map, factories, distance=30):
     ice_tiles = np.argwhere(ice_map == 1)
     ore_tiles = np.argwhere(ore_map == 1)
     factory_positions = [f.pos for uid, f in factories.items() if f.pos[0] != center[0] and f.pos[1] != center[1]]

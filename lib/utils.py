@@ -198,6 +198,7 @@ def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, ob
     target_tile = tile_locations[np.argmin(tile_distances)]
     return target_tile
 
+
 def closest_rubble_tile(start: np.ndarray, off_limits: list, obs):
     """Finds the closest rubble tile to the unit that is not occupied by a unit or a factory"""
     tile_map = deepcopy(obs["board"]["rubble"])
@@ -212,6 +213,32 @@ def closest_rubble_tile(start: np.ndarray, off_limits: list, obs):
         tile_locations = np.argwhere(tile_map > 0)
         tile_distances = np.mean((tile_locations - start) ** 2, 1)
     target_tile = tile_locations[np.argmin(tile_distances)]
+    return target_tile
+
+
+def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: list, obs):
+    """Finds the closest tile in a group of tiles to the unit that is not occupied by a unit or a factory"""
+    off_limits_set = set()
+    for pos in off_limits:
+        x = int(pos[0])
+        y = int(pos[1])
+        if x < 48 and y < 48:
+            off_limits_set.add((x, y))
+    group_set = set()
+    for pos in group:
+        x = int(pos[0])
+        y = int(pos[1])
+        if x < 48 and y < 48:
+            group_set.add((x, y))
+    group_set = group_set - off_limits_set
+    if len(group_set) == 0:
+        return None
+    group_list = list(group_set)
+    group_rubble_tiles = np.array([np.array([f[0], f[1]]) for f in group_list if obs["board"]["rubble"][f[0], f[1]] > 0])
+    if len(group_rubble_tiles) == 0:
+        return None
+    group_distances = np.mean((group_rubble_tiles - start) ** 2, 1)
+    target_tile = group_rubble_tiles[np.argmin(group_distances)]
     return target_tile
 
 
