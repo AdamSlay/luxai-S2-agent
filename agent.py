@@ -134,7 +134,11 @@ class Agent():
                 resource_positions = np.column_stack(np.where((ice_map == 1) | (ore_map == 1)))
                 off_limits = [pos for pos in resource_positions]
                 off_limits.extend(list(self.opp_factory_tiles))
-                off_limits.extend(list(self.my_factory_tiles))
+                # add all factory tiles to off limits *except* for the home factory
+                my_factory_tiles = [get_factory_tiles(f.pos) for i, f in self.my_factories.items() if i != fid]
+                for tiles in my_factory_tiles:
+                    for tile in tiles:
+                        off_limits.append(tile)
 
                 clearing_path = dijkstras_path(rubble_map, factory.pos, clearing_tile, [], off_limits,
                                                rubble_threshold=100)
@@ -169,7 +173,16 @@ class Agent():
                     nq = queue[0]
                     nq[5] -= 1
                     if nq[5] == 0:
+                        # reset action queue
                         new_actions[unit_id] = []
+
+                        # remove from tasks
+                        for fid, units in self.factory_tasks_light.items():
+                            if unit_id in units.keys():
+                                del self.factory_tasks_light[fid][unit_id]
+                        for fid, units in self.factory_tasks_heavy.items():
+                            if unit_id in units.keys():
+                                del self.factory_tasks_heavy[fid][unit_id]
                     else:
                         new_actions[unit_id] = [nq]
             else:
@@ -363,37 +376,37 @@ class Agent():
                 cost_to_ore = self.ore_path_costs[fid]
                 if cost_to_ore > 0:
                     # if not, then I need to excavate a path to the nearest ore
-                    [light_todo.append("ore path") for _ in range(4)]
+                    [light_todo.append("ore path") for _ in range(5)]
 
-            # do I have room to grow lichen?
-            needs_excavation = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
-            primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
-            zone_cost = get_total_rubble(self.obs, primary_zone)
-            if needs_excavation or zone_cost > 0:
-                if zone_cost == 0 and self.step >= 2:
-                    # check to see if clearing a path is necessary
-                    cost_to_clearing = self.clearing_path_costs[fid]
-                    if cost_to_clearing > 0:
-                        # if not, then I need to excavate a clearing path
-                        [light_todo.append("clearing path") for _ in range(4)]
+                # do I have room to grow lichen?
+                needs_excavation = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
+                primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
+                zone_cost = get_total_rubble(self.obs, primary_zone)
+                if (needs_excavation or zone_cost > 0) and cost_to_ore == 0:
+                    if zone_cost == 0:
+                        # check to see if clearing a path is necessary
+                        cost_to_clearing = self.clearing_path_costs[fid]
+                        if cost_to_clearing > 0:
+                            # if not, then I need to excavate a clearing path
+                            [light_todo.append("clearing path") for _ in range(5)]
+                        else:
+                            # if not, then I need to excavate immediate zone
+                            [light_todo.append("rubble") for _ in range(4)]
                     else:
-                        # if not, then I need to excavate immediate zone
+                        # # if not, then I need to excavate immediate zone
                         [light_todo.append("rubble") for _ in range(4)]
-                else:
-                    # # if not, then I need to excavate immediate zone
-                    [light_todo.append("rubble") for _ in range(4)]
 
-            # if I have room to grow lichen, do I have enough water to grow lichen?
-            if factory.cargo.water < 200 and number_of_ice >= 2:
-                ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
-                # # if not, then I need to mine ice
-                [light_todo.append("ice") for _ in range(ice_miners)]
+                # if I have room to grow lichen, do I have enough water to grow lichen?
+                if factory.cargo.water < 200 and number_of_ice >= 2:
+                    ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
+                    # # if not, then I need to mine ice
+                    [light_todo.append("ice") for _ in range(ice_miners)]
 
-            # if I have enough water to grow lichen, do I have enough ore to build bots?
-            if factory.cargo.metal < 100 and number_of_ore >= 1:
-                ore_miners = number_of_ore - 1 if number_of_ore - 1 <= 3 else 3
-                # # if not, then I need to mine ore
-                [light_todo.append("ore") for _ in range(ore_miners)]
+                # if I have enough water to grow lichen, do I have enough ore to build bots?
+                if factory.cargo.metal < 100 and number_of_ore >= 1:
+                    ore_miners = number_of_ore - 1 if number_of_ore - 1 <= 3 else 3
+                    # # if not, then I need to mine ore
+                    [light_todo.append("ore") for _ in range(ore_miners)]
 
             # if I have enough ore to build bots, does someone else need my help?
             # # if so, then I need to go help them
@@ -405,7 +418,7 @@ class Agent():
                 heavy_todo.append("ore")
 
             # do I have enough water to grow lichen?
-            if factory.cargo.water < 1500 and number_of_ice > 0:
+            if factory.cargo.water < 2000 and number_of_ice > 0:
                 # # if not, then I need to mine ice
                 heavy_todo.append("ice")
 
@@ -414,15 +427,23 @@ class Agent():
                 emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
                 [heavy_todo.append("ice") for _ in range(emergency_ice_miners)]
 
+            # if I don't need to excavate, do I have enough ore to build bots?
+            if factory.cargo.metal < 100 and number_of_ore > 0 and self.step < 750:
+                # # if not, then I need to mine ore
+                heavy_todo.append("ore")
+
+            if self.step >= 100:
+                dibbed = list(self.heavy_mining_dibs.values())
+                dibbed.extend(list(self.light_mining_dibs.values()))
+                closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.obs)
+                if closest_lichen is not None:
+                    # if so, then I need to attack
+                    heavy_todo.append("lichen")
+
             # if I have enough water to grow lichen, am I super clogged up with rubble?
             if lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10):
                 # # if so, then I need to excavate either a clearing path or immediate zone
                 heavy_todo.append("rubble")
-
-            # if I don't need to excavate, do I have enough ore to build bots?
-            if factory.cargo.metal < 100 and number_of_ore > 0:
-                # # if not, then I need to mine ore
-                heavy_todo.append("ore")
 
             # if I have enough ore to build bots, does someone else need my help?
             # # if so, then I need to go help them
@@ -449,7 +470,9 @@ class Agent():
                     heavy_tasks_needed.remove(task)
 
             print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
             print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
             if light_tasks_needed:
                 self.factory_needs_light[fid] = light_tasks_needed
             elif not light_tasks_needed:
@@ -580,7 +603,6 @@ class Agent():
         return queue
 
     def trailblazing_task_assignment(self, q_builder, _task, task_factory, light=False):
-        # TODO: create function out of this
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
         if light:
             light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
@@ -590,14 +612,14 @@ class Agent():
             closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_ore, self.obs)
             if closest_path_pos is None:
                 closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-            queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+            queue = q_builder.build_mining_queue("ore path", rubble_tile=closest_path_pos)
             return queue
         else:  # it's a clearing path
             path_to_clear = self.clearing_paths[task_factory.unit_id]
             closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_clear, self.obs)
             if closest_path_pos is None:
                 closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
-            queue = q_builder.build_mining_queue("rubble", rubble_tile=closest_path_pos)
+            queue = q_builder.build_mining_queue("clearing path", rubble_tile=closest_path_pos)
             return queue
 
     def mining_decision(self, task_factory, q_builder, light=False):
@@ -755,6 +777,8 @@ class Agent():
         self.factory_needs = dict()  # Clear out the factory needs from last step
 
         print(f"Step: {self.step}: timing", file=sys.stderr)
+        # if self.step == 200:
+        #     print('halt')
 
         # Set opp_strains and paths
         if self.step == 2:
@@ -792,6 +816,7 @@ class Agent():
             if self.step == 1:
                 clearing_position = self.find_clearing_position(factory.pos, 8, 15)
                 if clearing_position is not None:
+                    print(f"Step {self.step}: {factory.unit_id} is clearing {clearing_position}", file=sys.stderr)
                     self.factory_clearing_tiles[factory.unit_id] = clearing_position
 
             # I'm thinking these will be the factory functions: factory_construct, factory_water, factory_state

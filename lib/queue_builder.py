@@ -18,8 +18,9 @@ class QueueBuilder:
 
         queue = []
         transfer_ready, transfer_direction = self.transfer_ready(home_pref=True)
+        transfer_queue_cost = 0
         if transfer_ready:
-            transfer_queue = self.get_transfer_queue(transfer_direction)
+            transfer_queue, transfer_queue_cost = self.get_transfer_queue(transfer_direction)
             queue.extend(transfer_queue)
 
         dibs = self.get_dibs_class()
@@ -85,7 +86,7 @@ class QueueBuilder:
 
         # total cost
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
-        pathing_cost = cost_to_resource + cost_from_resource + reserve_power
+        pathing_cost = transfer_queue_cost + cost_to_resource + cost_from_resource + reserve_power
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
         dig_rate = 20 if self.unit.unit_type == "HEAVY" else 2
         dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
@@ -133,6 +134,7 @@ class QueueBuilder:
         self.clear_previous_task()
         target_factory = self.target_factory
         if factory is not None:
+            print(f"Step {self.agent.step} - {self.unit.unit_id} is recharging at an abnormal factory: {factory.unit_id}", file=sys.stderr)
             target_factory = factory
         # TODO: if you are attacking, find optimal factory to recharge at
 
@@ -160,6 +162,13 @@ class QueueBuilder:
             path_home = self.get_path_positions(self.unit.pos, return_tile, occupied)
         else:
             path_home = self.get_path_positions(self.unit.pos, return_tile)
+
+        # if you're hovering around the factory but can't get to it, just wait
+        right_next_to_factory = distance_to(self.unit.pos, target_factory.pos) < 3
+        units_in_the_way = len(path_home) >= 4
+        if right_next_to_factory and units_in_the_way:
+            queue = self.build_waiting_queue(length=5)
+            return queue
 
         # wait for power if you don't have enough
         cost_home = self.get_path_cost(path_home)
@@ -215,13 +224,16 @@ class QueueBuilder:
             if step % 50 < 30:
                 power_required -= solar_charge
             step += 1
+        print(f"Step {self.agent.step}: Unit {self.unit.unit_id} is low on battery and is waiting for {len(queue) + 1} steps",file=sys.stderr)
         # add an extra move to make sure you don't get stuck
         queue.append(self.unit.move(0))
 
         queue = truncate_actions(queue)
         return queue
 
-    def build_waiting_queue(self) -> list:
+    def build_waiting_queue(self, length=50) -> list or None:
+        if self.agent.unit_states[self.unit.unit_id] == "waiting":
+            return None
         self.agent.unit_states[self.unit.unit_id] = "waiting"
         self.clear_mining_dibs()
         self.clear_previous_task()
@@ -231,7 +243,7 @@ class QueueBuilder:
             direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
             print(f"Unit {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}",
                   file=sys.stderr)
-            queue = [self.unit.move(direction), self.unit.move(0, n=50)]
+            queue = [self.unit.move(direction), self.unit.move(0, n=length)]
         return queue
 
     def build_evasion_dance(self, avoid_positions, opp_unit=None):
@@ -300,8 +312,8 @@ class QueueBuilder:
             charge_factory = self.target_factory
         else:
             charge_factory = get_closest_factory(self.agent.my_factories, position)
-
-        target_factory_tile = closest_factory_tile(charge_factory.pos, position, self.agent.my_heavy_units)
+        other_heavies = [u for u in self.agent.my_heavy_units if u.unit_id != self.unit.unit_id]
+        target_factory_tile = closest_factory_tile(charge_factory.pos, position, other_heavies)
         pos = (position[0], position[1])
 
         if pos in self.agent.occupied_next:
@@ -315,10 +327,19 @@ class QueueBuilder:
             if self.unit.cargo.ice > 0 or self.unit.cargo.ore > 0:
                 direction = direction_to(position, target_factory_tile)
                 return True, direction
+        elif self.unit.cargo.ice > 100 or self.unit.cargo.ore > 50:
+            path = self.get_path_positions(position, target_factory_tile, self.agent.occupied_next)
+            if len(path) > 0:
+                return True, path
         return False, 8
 
     def get_transfer_queue(self, transfer_direction):
         queue = []
+        cost = 0
+        if isinstance(transfer_direction, list):
+            queue = self.get_path_moves(transfer_direction)
+            cost = self.get_path_cost(transfer_direction)
+            transfer_direction = queue[-1][1]  # direction of the last move along the path to the factory
         if self.unit.unit_type == "LIGHT":
             if self.unit.cargo.ice > 0:
                 queue.append(self.unit.transfer(transfer_direction, 0, self.unit.cargo.ice))
@@ -333,7 +354,7 @@ class QueueBuilder:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
             elif self.unit.cargo.ore > 400:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
-        return queue
+        return queue, cost
 
     def get_dibs_class(self):
         if self.unit.unit_type == "HEAVY":
