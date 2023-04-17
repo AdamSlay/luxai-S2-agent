@@ -711,6 +711,12 @@ class Agent():
         self.avoid_collisions(unit)  # make sure you aren't going to collide with a friendly unit
 
         task_factory = get_closest_factory(factories, unit.pos)
+        # if you are the closest heavy to a given factory, you need to be doing tasks for that factory
+        for fid, f in factories.items():
+            heavy_tiles = [u.pos for u in self.my_heavy_units]
+            closest_heavy = closest_tile_in_group(f.pos, [], heavy_tiles)
+            if closest_heavy is not None and on_tile(unit.pos, closest_heavy):
+                task_factory = f
         for factory_id, unit_tasks in factory_tasks.items():
             if unit.unit_id in unit_tasks.keys() and factory_id in factories.keys():
                 task_factory = factories[factory_id]

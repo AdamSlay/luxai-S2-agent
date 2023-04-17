@@ -244,6 +244,31 @@ def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: lis
     target_tile = group_rubble_tiles[np.argmin(group_distances)]
     return target_tile
 
+def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
+    """Finds the closest tile in a group of tiles to the unit that is not occupied by a unit or a factory"""
+    off_limits_set = set()
+    for pos in off_limits:
+        x = int(pos[0])
+        y = int(pos[1])
+        if x < 48 and y < 48:
+            off_limits_set.add((x, y))
+    group_set = set()
+    for pos in group:
+        x = int(pos[0])
+        y = int(pos[1])
+        if x < 48 and y < 48:
+            group_set.add((x, y))
+    group_set = group_set - off_limits_set
+    if len(group_set) == 0:
+        return None
+    group_list = list(group_set)
+    group_tiles = np.array([np.array([f[0], f[1]]) for f in group_list])
+    if len(group_tiles) == 0:
+        return None
+    group_distances = np.mean((group_tiles - start) ** 2, 1)
+    target_tile = group_tiles[np.argmin(group_distances)]
+    return target_tile
+
 
 def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, priority=False, tile_amount=0):
     lichen_tiles = deepcopy(obs["board"]["lichen_strains"])
