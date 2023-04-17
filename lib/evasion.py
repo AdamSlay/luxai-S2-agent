@@ -60,6 +60,7 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
     if len(self.action_queue[unit.unit_id]) > 0:
 
         # and the action is a move, make sure it's safe
+        print(f"Step {self.step}: {unit.unit_id} has an action in the queue: {self.action_queue[unit.unit_id]}", file=sys.stderr)
         if self.action_queue[unit.unit_id][0][0] == 0:
             next_dir = self.action_queue[unit.unit_id][0][1]
             next_pos = next_position(unit.pos, next_dir)
@@ -82,14 +83,14 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
 
                 elif not danger_close:
                     # you were not evading, and your next action is safe, so continue
-                    # print(f"Step {self.step}: {unit.unit_id} was not evading, and next move is safe. returning None from evasion_check", file=sys.stderr)
+                    print(f"Step {self.step}: {unit.unit_id} was not evading, and next move is safe. returning None from evasion_check", file=sys.stderr)
                     return None
 
         # if the next action is not a move, then make sure there isn't danger close
         elif not danger_close:
-            # print(
-            #     f"Step {self.step}: {unit.unit_id} was not evading, and is not moving. returning None from evasion_check",
-            #     file=sys.stderr)
+            print(
+                f"Step {self.step}: {unit.unit_id} was not evading, and is not moving. returning None from evasion_check",
+                file=sys.stderr)
             return None
 
     # If danger close, build evasion dance queue and return it, keep in mind avoid_these_tiles

@@ -180,6 +180,8 @@ def closest_factory_tile(factory_pos: np.ndarray, position: np.ndarray, heavies)
 
     factory_tiles = get_factory_tiles(factory_pos)
     factory_tiles = [tile for tile in factory_tiles if (tile[0], tile[1]) not in heavy_tiles]
+    if len(factory_tiles) == 0:
+        return factory_pos
     factory_distances = [distance_to(position, tile) for tile in factory_tiles]
     return factory_tiles[np.argmin(factory_distances)]
 

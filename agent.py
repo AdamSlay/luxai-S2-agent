@@ -91,7 +91,7 @@ class Agent():
     def set_ore_paths(self):
         for fid, factory in self.my_factories.items():
             self.ore_paths[fid] = []
-            print(f"finding ore path for factory {fid}", file=sys.stderr)
+            # print(f"finding ore path for factory {fid}", file=sys.stderr)
             closest_ore = closest_resource_tile("ore", factory.pos, list(self.opp_factory_tiles), self.obs)
             if closest_ore is not None:
                 ore_distance = distance_to(closest_ore, factory.pos)
@@ -469,10 +469,10 @@ class Agent():
                 if task in heavy_tasks_needed:
                     heavy_tasks_needed.remove(task)
 
-            print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
-            print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
-            print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
-            print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
             if light_tasks_needed:
                 self.factory_needs_light[fid] = light_tasks_needed
             elif not light_tasks_needed:
@@ -716,6 +716,15 @@ class Agent():
                 task_factory = factories[factory_id]
         q_builder = QueueBuilder(self, unit, task_factory, obs)
 
+        # make sure closest factory is not about to run dry, save it if you have ice
+        closest_factory = get_closest_factory(factories, unit.pos)
+        transferable, transfer_direction = q_builder.transfer_ready(home_pref=False)
+        not_already_transfering = self.unit_states[unit.unit_id] != "transfering"
+        if closest_factory.cargo.water < 50 and transferable and not_already_transfering:
+            self.unit_states[unit.unit_id] = "transfering"
+            queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=False)
+            self.update_queues(unit, queue)
+
         # Check for evasions now that we have come up with our final queue and any interrupts
         evasion_queue = evasion_check(self, unit, task_factory, opp_units, obs)
         if evasion_queue is not None:
@@ -730,19 +739,26 @@ class Agent():
             queue = q_builder.build_recharge_queue()
             self.update_queues(unit, queue)
         else:  # if you don't need to recharge
+
             # if you don't have a queue, build one
             if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting":
-                queue = self.mining_decision(task_factory, q_builder, light=is_light)
+                queue = self.mining_decision(task_factory, q_builder, light=is_light)  # try to get a new queue
+
+                # if you were waiting before and you're waiting now, and you have a queue, just keep waiting
+                was_waiting = state == "waiting"  # was waiting to start the step
+                is_waiting = self.unit_states[unit.unit_id] == "waiting"  # still waiting after decision tree
+                has_a_queue = len(self.action_queue[unit.unit_id]) > 0 and self.action_queue[unit.unit_id] != []
+                if was_waiting and is_waiting and has_a_queue:
+                    # you were already waiting and nothing new came up
+                    # so just continue waiting and add your next pos to occupied_next
+                    self.add_nextpos_to_occnext(unit)
+                    return
 
                 if queue is None:
-                    if state == "waiting" and can_stay(unit.pos, list(self.occupied_next)):
-                        # you were already waiting and nothing new came up
-                        # so just continue waiting and add your next pos to occupied_next
-                        self.add_nextpos_to_occnext(unit)
-                        return
-                    print(f"Step {self.step}: {unit.unit_id} has no queue, building waiting queue", file=sys.stderr)
-                    # This would be attack or wait something
+                    # Got through the whole decision tree and couldn't find a queue
                     queue = q_builder.build_waiting_queue()
+                    if queue is None:
+                        return
 
                 # update the action queue, this adds new_pos to occupied_next
                 self.update_queues(unit, queue)
@@ -816,7 +832,7 @@ class Agent():
             if self.step == 1:
                 clearing_position = self.find_clearing_position(factory.pos, 8, 15)
                 if clearing_position is not None:
-                    print(f"Step {self.step}: {factory.unit_id} is clearing {clearing_position}", file=sys.stderr)
+                    # print(f"Step {self.step}: {factory.unit_id} is clearing {clearing_position}", file=sys.stderr)
                     self.factory_clearing_tiles[factory.unit_id] = clearing_position
 
             # I'm thinking these will be the factory functions: factory_construct, factory_water, factory_state
@@ -828,10 +844,20 @@ class Agent():
                     continue
 
                 elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
-                    if self.factory_needs_light[factory.unit_id]:
-                        queue = factory.build_light()
-                        self.update_queues(factory, queue)
-                        continue
+                    total_units = len(units)
+                    total_factories = len(factories)
+                    need_basic_lights = total_units < total_factories * 10
+                    have_plenty_of_heavies = len(self.my_heavy_units) > total_factories * 2
+                    if self.factory_needs_light[factory.unit_id] and (need_basic_lights or have_plenty_of_heavies):
+                        if self.step > 200:
+                            if self.step % 10 == 0:
+                                queue = factory.build_light()
+                                self.update_queues(factory, queue)
+                                continue
+                        else:
+                            queue = factory.build_light()
+                            self.update_queues(factory, queue)
+                            continue
             self.factory_watering(factory, game_state)
 
         # Finalize the action queue and submit it
