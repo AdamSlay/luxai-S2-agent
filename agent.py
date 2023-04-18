@@ -671,6 +671,7 @@ class Agent():
             return queue
 
     def mining_decision(self, task_factory, q_builder, light=False):
+        last_recursion_try = False
         if light:
             factory_needs = self.factory_needs_light
             tasks_being_done = self.factory_tasks_light
@@ -712,6 +713,7 @@ class Agent():
             else:
                 # if there are no factories in need, attack
                 _task = "lichen"
+                last_recursion_try = True
 
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
@@ -726,17 +728,25 @@ class Agent():
                 queue = self.rubble_digging_task_assignment(q_builder, resource, task_factory, light=light)
             else:  # it's a resource
                 queue = q_builder.build_mining_queue(resource)
+
+            if queue is None:
+                queue = self.mining_decision(task_factory, q_builder, light=light)
+
             return queue
 
         # Pathing tasks
         elif first_task_word in pathing:
             queue = self.trailblazing_task_assignment(q_builder, _task, task_factory, light=light)
+            if queue is None:
+                queue = self.mining_decision(task_factory, q_builder, light=light)
             return queue
 
         elif first_task_word in helping:
             homer_id = _task.split(":")[1]  # for a helper queue this is the homer_id
             homer = self.my_units[homer_id]
             queue = q_builder.build_helper_queue(homer)
+            if queue is None:
+                queue = self.mining_decision(task_factory, q_builder, light=light)
             if queue is not None:
                 return queue
 
@@ -747,7 +757,10 @@ class Agent():
         if lichen_tile is not None:
             # queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
             queue = q_builder.build_attack_queue()
-            return queue
+            if queue is None and not last_recursion_try:
+                queue = self.mining_decision(task_factory, q_builder, light=light)
+
+            return queue if queue is not None else None
 
         # if you made it here, you couldn't find a lichen tile
         print(
@@ -799,8 +812,12 @@ class Agent():
             self.update_queues(unit, evasion_queue)
             return
 
-        need_recharge = q_builder.check_need_recharge()
         state = self.unit_states[unit.unit_id]
+
+        need_recharge = False
+        if state != "attacking":
+            # for the love of god, just complete your attack run and worry about optimal recharging later
+            need_recharge = q_builder.check_need_recharge()
 
         if need_recharge and state != "recharging" and state != "low battery":
             q_builder.clear_mining_dibs()

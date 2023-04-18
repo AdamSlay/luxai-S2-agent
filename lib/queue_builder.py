@@ -19,6 +19,7 @@ class QueueBuilder:
 
         # TRANSFER
         queue = []
+        max_power = 3000 if self.unit.unit_type == "HEAVY" else 150
         transfer_ready, transfer_direction = self.transfer_ready(home_pref=True)
         transfer_queue_cost = 0
         if transfer_ready:
@@ -104,7 +105,7 @@ class QueueBuilder:
         dig_rate = 20 if self.unit.unit_type == "HEAVY" else 2
         dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
 
-        if resource == "ice" and target_factory.cargo.water < 150:
+        if resource == "ice" and target_factory.cargo.water < 150 and self.unit.unit_type == "HEAVY":
             dig_allowance = 300
 
         if mining_adjacent:
@@ -125,6 +126,9 @@ class QueueBuilder:
             dig_allowance = 400 if self.unit.unit_type == "HEAVY" else 50
 
         if self.unit.power < pathing_cost + dig_allowance:
+            if pathing_cost + dig_allowance > max_power:
+                return None  # this task is not feasible for this unit at this time
+
             is_attacking = lichen_tile is not None
             return self.build_recharge_queue(factory=target_factory, attacking=is_attacking)
 
@@ -143,6 +147,10 @@ class QueueBuilder:
             cargo_space = 1000 if self.unit.unit_type == "HEAVY" else 150
             max_digs = (cargo_space - cargo) // dig_rate
             digs = digs if digs < max_digs else max_digs
+
+        if digs <= 0:
+            return None  # this task is not feasible for this unit at this time
+
         queue.append(self.unit.dig(n=digs))
 
         factory_tasks_weight_class[target_factory.unit_id][self.unit.unit_id] = resource
@@ -168,7 +176,8 @@ class QueueBuilder:
         dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
-        power_remaining = self.unit.power - reserve_power
+        max_power = 3000 if self.unit.unit_type == "HEAVY" else 150
+        power_remaining = deepcopy(self.unit.power)
         lichen_amounts = self.obs["board"]["lichen"]
         position = deepcopy(self.unit.pos)
         queue = []
@@ -182,28 +191,36 @@ class QueueBuilder:
         # FIND LICHEN
         lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.obs, priority=True)
         if lichen_tile is None:
-            # if there is no lichen, just recharge
-            return self.build_recharge_queue(factory=target_factory, attacking=True)
+            print(f'Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue while attacking and cant find lichen!', file=sys.stderr)
+            return None  # if there is no lichen, return None and go back through decision tree
 
         # PATHS AND COSTS
         path_to_lichen = self.get_path_positions(position, lichen_tile)
         cost_to_lichen = self.get_path_cost(path_to_lichen)
         path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
         cost_from_lichen = self.get_path_cost(path_from_lichen)
-        total_cost = cost_to_lichen + cost_from_lichen + reserve_power + dig_allowance
+        total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
 
         # CAN YOU AFFORD IT?
         if total_cost > power_remaining:
+            if total_cost > max_power:
+                return None  # it's not feasible to attack this lichen, return None and go back through decision tree
             return self.build_recharge_queue(factory=target_factory, attacking=True)
 
         # YES YOU CAN
         if len(path_to_lichen) > 1:
             queue.extend(self.get_path_moves(path_to_lichen))
         elif not on_tile(self.unit.pos, lichen_tile):
+            # path to lichen broke, go back to decision tree
             return None
-        power_remaining -= cost_to_lichen
+        power_remaining -= cost_to_lichen + reserve_power  # <---------------- accounting for reserve power here
         tile_amount = lichen_amounts[lichen_tile[0]][lichen_tile[1]]
+
         digs = self.get_number_of_digs(power_remaining, cost_to_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
+        if digs <= 0:
+            # this task is not feasible for this unit at this time
+            return None
+
         dig_allowance -= digs * dig_cost
         power_remaining -= digs * dig_cost
         queue.append(self.unit.dig(n=digs))
@@ -304,7 +321,6 @@ class QueueBuilder:
                 f"Step {self.agent.step} - {self.unit.unit_id} is recharging at an abnormal factory: {factory.unit_id}",
                 file=sys.stderr)
             target_factory = factory
-        # TODO: if you are attacking, find optimal factory to recharge at
 
         queue = []
 
@@ -467,7 +483,7 @@ class QueueBuilder:
             print(
                 f"Step {self.agent.step}: {self.unit.unit_id} is low on battery and is waiting for {len(queue) + 1} steps\n"
                 f"factory = {self.target_factory}\n", file=sys.stderr)
-            print('halt')
+
         # add an extra move to make sure you don't get stuck
         queue.append(self.unit.move(0))
         queue = truncate_actions(queue)
