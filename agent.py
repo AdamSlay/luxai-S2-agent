@@ -23,6 +23,7 @@ class Agent():
         self.step = 0
         self.obs = None
         self.opp_strains = []  # list of strains
+        self.my_strains = []
 
         # queues
         self.action_queue = dict()
@@ -68,12 +69,17 @@ class Agent():
         self.factory_tasks_heavy = dict()  # {fid: {unit_id :"task"}}  --> what I've got
 
         # dibs
-        self.light_mining_dibs = dict()
-        self.heavy_mining_dibs = dict()
+        self.light_mining_dibs = dict()  # {unit_id: pos}
+        self.heavy_mining_dibs = dict()  # {unit_id: [pos, pos, etc]}
+        self.lichen_dibs = dict()
 
         # reserve power
         self.moderate_reserve_power = {"LIGHT": 15, "HEAVY": 150}
         self.low_reserve_power = {"LIGHT": 10, "HEAVY": 100}
+
+        # Mining Adjacent and Helper
+        self.helper_treated = set()
+        self.mining_adjacent = set()
 
     def early_setup(self, step: int, obs, remainingOverageTime: int = 60):
         queue, factories_to_place, factory_position, low_rubble_scores = setup(self, step, obs, remainingOverageTime)
@@ -154,6 +160,18 @@ class Agent():
     def set_clearing_path_costs(self):
         for fid, path in self.clearing_paths.items():
             self.clearing_path_costs[fid] = get_path_cost(path, self.obs)
+
+    def check_valid_dig(self, unit, obs):
+        if self.action_queue[unit.unit_id][0][0] == 3:
+            lichen_map = obs['board']['lichen_strains']
+
+            strain_id = lichen_map[unit.pos[0]][unit.pos[1]]
+            if strain_id not in self.opp_strains:
+                if len(self.action_queue[unit.unit_id]) > 1:
+                    queue = self.action_queue[unit.unit_id][1:]
+                    self.update_queues(unit, queue)
+                else:
+                    self.action_queue[unit.unit_id] = []
 
     def pop_action_queue(self):
         new_actions = dict()
@@ -254,6 +272,7 @@ class Agent():
                 if new_pos in self.occupied_next:
                     q_builder = QueueBuilder(self, unit, [], self.obs)
                     q_builder.clear_mining_dibs()
+                    q_builder.clear_lichen_dibs()
                     self.action_queue[unit.unit_id] = []
 
     def add_nextpos_to_occnext(self, unit):
@@ -610,7 +629,7 @@ class Agent():
         primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.obs)
         zone_cost = get_total_rubble(self.obs, primary_zone)
         if zone_cost > 0:
-            lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, dibbed_tiles, self.obs)
+            lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, dibbed_tiles, self.obs, task_factory)
             if lowest_rubble_pos is None:
                 lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
             queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
@@ -621,7 +640,7 @@ class Agent():
                                                          self.opp_strains,
                                                          off_limits=off_limits_or_dibbed)
             if len(positions_to_clear) > 0:
-                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.obs)
+                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.obs, task_factory)
                 if lowest_rubble_pos is None:
                     lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
                 queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
@@ -660,6 +679,7 @@ class Agent():
             tasks_being_done = self.factory_tasks_heavy
 
         q_builder.clear_mining_dibs()
+        q_builder.clear_lichen_dibs()
         q_builder.clear_previous_task()
 
         # for now, just mine factory_needs in order, but this will be more complex later
@@ -725,7 +745,8 @@ class Agent():
         dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
         lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.obs, priority=True)
         if lichen_tile is not None:
-            queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
+            # queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
+            queue = q_builder.build_attack_queue()
             return queue
 
         # if you made it here, you couldn't find a lichen tile
@@ -746,6 +767,10 @@ class Agent():
             self.unit_states[unit.unit_id] = "idle"
 
         self.avoid_collisions(unit)  # make sure you aren't going to collide with a friendly unit
+
+        # make sure you aren't about to dig up the rubble you just made by clearing opp lichen
+        if len(self.action_queue[unit.unit_id]) > 0 and self.unit_states[unit.unit_id] == "attacking":
+            self.check_valid_dig(unit, self.obs)
 
         task_factory = get_closest_factory(factories, unit.pos)
         # if you are the closest heavy to a given factory, you need to be doing tasks for that factory
@@ -779,6 +804,7 @@ class Agent():
 
         if need_recharge and state != "recharging" and state != "low battery":
             q_builder.clear_mining_dibs()
+            q_builder.clear_lichen_dibs()
             queue = q_builder.build_recharge_queue()
             self.update_queues(unit, queue)
         else:  # if you don't need to recharge
@@ -830,6 +856,8 @@ class Agent():
         self.pop_action_queue()  # Then update the persistent action queue
         self.update_occupied_next()  # Update the occupied_next set
         self.clear_dead_units_from_memory()  # Clear out the dead units from the mining dibs
+        self.mining_adjacent = set()  # Clear out the mining adjacent set
+        self.helper_treated = set()  # Clear out the helper treated set
 
         # Factory updates
         self.factory_types = dict()  # Clear out the factory types from last step
@@ -845,6 +873,8 @@ class Agent():
             self.set_clearing_paths()
             for fid, factory in opp_factories.items():
                 self.opp_strains.append(factory.strain_id)
+            for fid,factory in factories.items():
+                self.my_strains.append(factory.strain_id)
 
         if self.step >= 2:
             self.set_ore_path_costs()
@@ -864,11 +894,32 @@ class Agent():
 
         # Unit Actions
         heavies, lights = self.split_heavies_and_lights(units)
-        for unit in heavies:
-            self.decision_tree(unit, factories, opp_units, obs)
 
+        # first get actions for heavies that were previously mining adjacent
+        for unit in heavies:
+            if unit.unit_id in self.unit_states.keys():
+                state = self.unit_states[unit.unit_id]
+                if state == "mining adjacent":
+                    self.decision_tree(unit, factories, opp_units, obs)
+                    self.mining_adjacent.add(unit.unit_id)
+
+        # then get actions for heavies that weren't mining adjacent
+        for unit in heavies:
+            if unit.unit_id not in self.mining_adjacent:
+                self.decision_tree(unit, factories, opp_units, obs)
+
+        # first get actions for lights that were previously helping
         for unit in lights:
-            self.decision_tree(unit, factories, opp_units, obs)
+            if unit.unit_id in self.unit_states.keys():
+                state = self.unit_states[unit.unit_id]
+                if state == "helping":
+                    self.decision_tree(unit, factories, opp_units, obs)
+                    self.helper_treated.add(unit.unit_id)
+
+        # then get actions for lights that weren't helping
+        for unit in lights:
+            if unit.unit_id not in self.helper_treated:
+                self.decision_tree(unit, factories, opp_units, obs)
 
         # FACTORIES
         for fid, factory in factories.items():

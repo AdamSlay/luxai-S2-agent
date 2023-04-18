@@ -277,7 +277,7 @@ def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
     return target_tile
 
 
-def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, priority=False, tile_amount=0):
+def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, priority=False, tile_amount=0, group=None):
     lichen_tiles = deepcopy(obs["board"]["lichen_strains"])
     lichen_amounts = deepcopy(obs["board"]["lichen"])
     for pos in off_limits:
@@ -285,6 +285,10 @@ def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, pr
         y = int(pos[1])
         if x < 48 and y < 48:
             lichen_tiles[x, y] = 1000  # this is a null value for the lichen strains
+
+    if group is not None:
+        lichen_tiles = {tile: lichen_tiles[tile] for tile in group}
+
     if priority:
         priority_strain = find_most_common_integer(lichen_tiles, opp_strains)
         tile_locations = np.argwhere((np.isin(lichen_tiles, priority_strain) & (lichen_amounts > tile_amount)))
@@ -313,6 +317,21 @@ def find_most_common_integer(lichen_strain_map, opp_strains):
     most_common_index = np.argmax(filtered_counts)
     most_common_integer = filtered_elements[most_common_index]
     return most_common_integer
+
+
+def get_lichen_in_square(lichen_tiles, player_strains, pos, size):
+    x_center, y_center = pos
+    half_size = size // 2
+    x_min, x_max = max(0, x_center - half_size), min(48, x_center + half_size + 1)
+    y_min, y_max = max(0, y_center - half_size), min(48, y_center + half_size + 1)
+
+    square_tiles = []
+    for x in range(x_min, x_max):
+        for y in range(y_min, y_max):
+            if (x, y) in lichen_tiles and lichen_tiles[x, y] in player_strains:
+                square_tiles.append((x, y))
+
+    return square_tiles
 
 
 def find_new_direction(position: np.ndarray, target: np.ndarray, off_limits: list) -> int:
