@@ -70,6 +70,14 @@ class QueueBuilder:
             return None
         dibs[self.unit.unit_id] = resource_tile
 
+        # Check if mining adjacent
+        mining_adjacent = False
+        home_factory_tiles = get_factory_tiles(target_factory.pos)
+        factory_tile = closest_tile_in_group(resource_tile, [], home_factory_tiles)
+        if tile_adjacent(resource_tile, factory_tile) and self.unit.unit_type == "HEAVY":
+            mining_adjacent = True
+            self.agent.unit_states[self.unit.unit_id] = "mining adjacent"
+
         # PATHING
         path_to_resource = self.get_path_positions(self.unit.pos, resource_tile)
         cost_to_resource = self.get_path_cost(path_to_resource)
@@ -96,6 +104,9 @@ class QueueBuilder:
         dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
 
         if resource == "ice" and target_factory.cargo.water < 150:
+            dig_allowance = 300
+
+        if mining_adjacent:
             dig_allowance = 300
 
         if rubble_tile is not None:
@@ -237,9 +248,54 @@ class QueueBuilder:
             queue = queue[:20]
         return queue
 
+    def build_helper_queue(self, homer):
+        self.agent.unit_states[self.unit.unit_id] = "helping"
+        factory_tasks_weight_class = self.agent.factory_tasks_light
+        queue = []
+        can_transfer, transfer_direction = self.transfer_ready()
+        if can_transfer:
+            transfer_queue, transfer_queue_cost = self.get_transfer_queue(transfer_direction)
+            queue.extend(transfer_queue)
+        target_tile = get_helper_tile(homer.pos, self.target_factory.pos)
+        if not on_tile(self.unit.pos, target_tile):
+            positions_to_target = self.get_path_positions(self.unit.pos, target_tile)
+            if len(positions_to_target) == 0:
+                return None
+            moves_to_target = self.get_path_moves(positions_to_target)
+            queue.extend(moves_to_target)
+
+        else:
+            for pos in self.agent.occupied_next:
+                if pos[0] == target_tile[0] and pos[1] == target_tile[1]:
+                    direction = move_toward(self.unit.pos, target_tile, self.agent.occupied_next)
+                    queue = [self.unit.move(direction)]
+                    return queue
+
+        pickup_amt = 0
+        if self.unit.power < 140:
+            pickup_amt = self.get_pickup_amt(self.target_factory)
+            queue.append(self.unit.pickup(4, pickup_amt))
+
+        if homer.power < 1000:
+            transfer_amt = (self.unit.power + pickup_amt) - 20
+            if transfer_amt > 0:
+                transfer_direction = direction_to(self.unit.pos, homer.pos)
+                queue.append(self.unit.transfer(transfer_direction, 4, transfer_amt))
+        else:
+            queue.append(self.unit.move(0))
+
+        factory_tasks_weight_class[self.target_factory.unit_id][self.unit.unit_id] = f"helper:{homer.unit_id}"
+
+
+        # Return queue
+        if len(queue) > 20:
+            queue = queue[:20]
+        return queue
+
     def build_low_battery_queue(self, desired_power: int) -> list:
-        print(f"Step {self.agent.step}: {self.unit.unit_id} is low on battery and is waiting for {desired_power} power\n"
-              f"Heavy tasks: {self.agent.factory_tasks_heavy}\n", file=sys.stderr)
+        print(
+            f"Step {self.agent.step}: {self.unit.unit_id} is low on battery and is waiting for {desired_power} power\n"
+            f"Heavy tasks: {self.agent.factory_tasks_heavy}\n", file=sys.stderr)
         self.agent.unit_states[self.unit.unit_id] = "low battery"
         self.clear_mining_dibs()
         self.clear_previous_task()
@@ -259,8 +315,9 @@ class QueueBuilder:
             step += 1
             waits += 1
         if waits > 100:
-            print(f"Step {self.agent.step}: {self.unit.unit_id} is low on battery and is waiting for {len(queue) + 1} steps\n"
-                  f"factory = {self.target_factory}\n", file=sys.stderr)
+            print(
+                f"Step {self.agent.step}: {self.unit.unit_id} is low on battery and is waiting for {len(queue) + 1} steps\n"
+                f"factory = {self.target_factory}\n", file=sys.stderr)
             print('halt')
         # add an extra move to make sure you don't get stuck
         queue.append(self.unit.move(0))

@@ -373,6 +373,11 @@ class Agent():
             # LIGHTS
             # do I have a path to the nearest ore?
             if self.step >= 2:
+                for uid, task in self.factory_tasks_heavy[fid].items():
+                    if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
+                        if light_todo.count('helper') < 2:
+                            light_todo.append(f"helper:{uid}")
+
                 cost_to_ore = self.ore_path_costs[fid]
                 if cost_to_ore > 0:
                     # if not, then I need to excavate a path to the nearest ore
@@ -469,10 +474,10 @@ class Agent():
                 if task in heavy_tasks_needed:
                     heavy_tasks_needed.remove(task)
 
-            # print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
-            # print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
-            # print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
-            # print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
+            print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
             if light_tasks_needed:
                 self.factory_needs_light[fid] = light_tasks_needed
             elif not light_tasks_needed:
@@ -666,10 +671,12 @@ class Agent():
 
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
+        helping = ["helper"]
         attacking = ["lichen", "aggro"]
+        first_task_word = _task.split(":")[0]
 
         # Mining tasks
-        if _task in resources:
+        if first_task_word in resources:
             resource = _task
             if resource == "rubble":
                 queue = self.rubble_digging_task_assignment(q_builder, resource, task_factory, light=light)
@@ -678,18 +685,24 @@ class Agent():
             return queue
 
         # Pathing tasks
-        elif _task in pathing:
+        elif first_task_word in pathing:
             queue = self.trailblazing_task_assignment(q_builder, _task, task_factory, light=light)
             return queue
 
-        # Attacking tasks
-        else:
-            dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
-            dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
-            lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.obs, priority=True)
-            if lichen_tile is not None:
-                queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
+        elif first_task_word in helping:
+            homer_id = _task.split(":")[1]  # for a helper queue this is the homer_id
+            homer = self.my_units[homer_id]
+            queue = q_builder.build_helper_queue(homer)
+            if queue is not None:
                 return queue
+
+        # Attacking tasks
+        dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
+        dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
+        lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.obs, priority=True)
+        if lichen_tile is not None:
+            queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
+            return queue
 
         # if you made it here, you couldn't find a lichen tile
         print(

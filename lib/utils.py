@@ -80,6 +80,12 @@ def manhattan_dist_to_nth_closest(arr, n):
         return np.reshape(dist[:, n - 1], arr.shape)  # reshape the result to match the input shap
 
 
+def get_helper_tile(homer_pos, home_pos):
+    factory_tiles = get_factory_tiles(home_pos)
+    target_tile = closest_tile_in_group(homer_pos, [], list(factory_tiles))
+    return target_tile
+
+
 def on_tile(tile: np.ndarray, position: np.ndarray) -> bool:
     if np.all(tile == position):
         return True
@@ -243,6 +249,7 @@ def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: lis
     group_distances = np.mean((group_rubble_tiles - start) ** 2, 1)
     target_tile = group_rubble_tiles[np.argmin(group_distances)]
     return target_tile
+
 
 def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
     """Finds the closest tile in a group of tiles to the unit that is not occupied by a unit or a factory"""
