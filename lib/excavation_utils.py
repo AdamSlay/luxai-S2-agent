@@ -1,7 +1,7 @@
 from lib.utils import *
 
 
-def lichen_surrounded(obs, strain_id, opp_strains, off_limits, x):
+def lichen_surrounded(obs, strain_id, opp_strains, off_limits, x) -> (bool, int):
     lichen_map = obs["board"]["lichen"]
     lichen_strains_map = obs["board"]["lichen_strains"]
     rubble_map = obs["board"]["rubble"]
@@ -11,7 +11,7 @@ def lichen_surrounded(obs, strain_id, opp_strains, off_limits, x):
 
     # Check if 80% of lichen tiles are above 40, this is a good indicator that the lichen is bordering another strain
     if np.mean(lichen_map[my_lichen_positions[:, 0], my_lichen_positions[:, 1]] > 40) > 0.8:
-        return True
+        return True, 5
 
     free_spaces = 0
     for pos in my_lichen_positions:
@@ -23,7 +23,7 @@ def lichen_surrounded(obs, strain_id, opp_strains, off_limits, x):
                     (lichen_strains_map[nx, ny] in opp_strains or lichen_strains_map[nx, ny] == -1):
                 free_spaces += 1
 
-    return free_spaces < x  # Lichen is considered surrounded if there are less than x free spaces
+    return (free_spaces < x), free_spaces  # Lichen is considered surrounded if there are less than x free spaces
 
 
 def next_positions_to_clear(obs, strain_id, opp_strains, off_limits):

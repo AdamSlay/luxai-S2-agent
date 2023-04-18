@@ -1,5 +1,6 @@
 # import numpy as np
 # import sys
+from math import ceil
 
 from lib.dijkstra import dijkstras_path
 from lib.evasion import evasion_check
@@ -375,16 +376,19 @@ class Agent():
             if self.step >= 2:
                 for uid, task in self.factory_tasks_heavy[fid].items():
                     if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
-                        if light_todo.count('helper') < 2:
-                            light_todo.append(f"helper:{uid}")
+                        light_todo.append(f"helper:{uid}")
 
+                max_excavators = 4
                 cost_to_ore = self.ore_path_costs[fid]
                 if cost_to_ore > 0:
+                    excavators_needed = ceil(cost_to_ore / 40)
+                    excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                     # if not, then I need to excavate a path to the nearest ore
-                    [light_todo.append("ore path") for _ in range(5)]
+                    [light_todo.append("ore path") for _ in range(excavators_needed)]
 
                 # do I have room to grow lichen?
-                needs_excavation = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
+                free_spaces_wanted = 10
+                needs_excavation, free_spaces_actual = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, free_spaces_wanted)
                 primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
                 zone_cost = get_total_rubble(self.obs, primary_zone)
                 if (needs_excavation or zone_cost > 0) and cost_to_ore == 0:
@@ -392,20 +396,39 @@ class Agent():
                         # check to see if clearing a path is necessary
                         cost_to_clearing = self.clearing_path_costs[fid]
                         if cost_to_clearing > 0:
+                            excavators_needed = ceil(cost_to_clearing / 40)
+                            excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                             # if not, then I need to excavate a clearing path
-                            [light_todo.append("clearing path") for _ in range(5)]
+                            [light_todo.append("clearing path") for _ in range(excavators_needed)]
                         else:
-                            # if not, then I need to excavate immediate zone
-                            [light_todo.append("rubble") for _ in range(4)]
+                            excavators_needed = ceil((free_spaces_wanted - free_spaces_actual) / 2)
+                            excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
+                            # if not, then I need to excavate edge of lichen
+                            [light_todo.append("rubble") for _ in range(excavators_needed)]
                     else:
-                        # # if not, then I need to excavate immediate zone
-                        [light_todo.append("rubble") for _ in range(4)]
+                        excavators_needed = ceil(zone_cost / 40)
+                        excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
+                        # # if not, then I need to excavate edge of lichen
+                        [light_todo.append("rubble") for _ in range(excavators_needed)]
 
                 # if I have room to grow lichen, do I have enough water to grow lichen?
                 if factory.cargo.water < 200 and number_of_ice >= 2:
                     ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
                     # # if not, then I need to mine ice
                     [light_todo.append("ice") for _ in range(ice_miners)]
+
+                # if enemy is growing lichen nearby, attack it
+                dibbed = list(self.light_mining_dibs.values())
+                dibbed.extend(list(self.heavy_mining_dibs.values()))
+                opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.obs)
+                light_unit = [u for uid, u in self.my_units.items() if u.unit_type == "LIGHT"]
+                light_unit = light_unit[0] if len(light_unit) > 0 else None
+                if light_unit is not None and opp_lichen_tile is not None:
+                    q_builder = QueueBuilder(self, light_unit, factory, self.obs)
+                    path_to_lichen = q_builder.get_path_positions(light_unit.pos, opp_lichen_tile)
+                    cost_to_lichen = q_builder.get_path_cost(path_to_lichen)
+                    if opp_lichen_tile is not None and cost_to_lichen <= 40:
+                        [light_todo.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
                 if factory.cargo.metal < 100 and number_of_ore >= 1:
@@ -443,10 +466,11 @@ class Agent():
                 closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.obs)
                 if closest_lichen is not None:
                     # if so, then I need to attack
-                    heavy_todo.append("lichen")
+                    [heavy_todo.append("lichen") for _ in range(2)]
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
-            if lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10):
+            surrounded, free_spaces = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
+            if surrounded:
                 # # if so, then I need to excavate either a clearing path or immediate zone
                 heavy_todo.append("rubble")
 
