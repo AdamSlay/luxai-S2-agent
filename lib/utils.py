@@ -106,14 +106,14 @@ def can_stay(position: np.ndarray, off_limits: list) -> bool:
     return True
 
 
-def move_cost(unit, pos, obs) -> int:
+def move_cost(unit, pos, board) -> int:
     if unit.unit_type == "HEAVY":
         multiplier = 1
         move_cost = 40
     else:
         multiplier = 0.05
         move_cost = 2
-    rubble_map = obs["board"]["rubble"]
+    rubble_map = board["rubble"]
     rubble_cost = floor(rubble_map[pos[0]][pos[1]] * multiplier)
     return rubble_cost + move_cost + 1
 
@@ -192,8 +192,8 @@ def closest_factory_tile(factory_pos: np.ndarray, position: np.ndarray, heavies)
     return factory_tiles[np.argmin(factory_distances)]
 
 
-def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, obs):
-    tile_map = np.copy(obs["board"][resource])
+def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, board):
+    tile_map = np.copy(board[resource])
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
@@ -207,9 +207,9 @@ def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, ob
     return target_tile
 
 
-def closest_rubble_tile(start: np.ndarray, off_limits: list, obs):
+def closest_rubble_tile(start: np.ndarray, off_limits: list, board):
     """Finds the closest rubble tile to the unit that is not occupied by a unit or a factory"""
-    tile_map = np.copy(obs["board"]["rubble"])
+    tile_map = np.copy(board["rubble"])
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
@@ -224,7 +224,7 @@ def closest_rubble_tile(start: np.ndarray, off_limits: list, obs):
     return target_tile
 
 
-def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: list, obs):
+def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: list, board):
     """Finds the closest tile in a group of tiles to the unit that is not occupied by a unit or a factory"""
     off_limits_set = set()
     for pos in off_limits:
@@ -243,7 +243,7 @@ def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: lis
         return None
     group_list = list(group_set)
     group_rubble_tiles = np.array(
-        [np.array([f[0], f[1]]) for f in group_list if obs["board"]["rubble"][f[0], f[1]] > 0])
+        [np.array([f[0], f[1]]) for f in group_list if board["rubble"][f[0], f[1]] > 0])
     if len(group_rubble_tiles) == 0:
         return None
     group_distances = np.mean((group_rubble_tiles - start) ** 2, 1)
@@ -277,9 +277,9 @@ def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
     return target_tile
 
 
-def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, priority=False, tile_amount=0, group=None):
-    lichen_tiles = np.copy(obs["board"]["lichen_strains"])
-    lichen_amounts = np.copy(obs["board"]["lichen"])
+def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, board, priority=False, tile_amount=0, group=None):
+    lichen_tiles = np.copy(board["lichen_strains"])
+    lichen_amounts = np.copy(board["lichen"])
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])

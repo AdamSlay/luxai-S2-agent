@@ -117,7 +117,7 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
             spawn_loc = (x, y)
 
             loc = np.array([x, y])
-            ore_tile = closest_resource_tile("ore", loc, [], obs)
+            ore_tile = closest_resource_tile("ore", loc, [], obs["board"])
             m, w = 150, 150  # metal, water
             if ore_tile is not None:
                 if distance_to(loc, ore_tile) < 10 and metal_left % 150 != 0:

@@ -5,11 +5,11 @@ from lib.utils import *
 
 
 class QueueBuilder:
-    def __init__(self, agent, unit, target_factory, obs):
+    def __init__(self, agent, unit, target_factory, board):
         self.agent = agent
         self.unit = unit
         self.target_factory = target_factory
-        self.obs = deepcopy(obs)
+        self.board = deepcopy(board)
 
     def build_mining_queue(self, resource: str, rubble_tile=None, lichen_tile=None) -> list or None:
         self.agent.unit_states[self.unit.unit_id] = "mining"
@@ -47,11 +47,11 @@ class QueueBuilder:
         target_factory = self.target_factory
         if rubble_tile is not None:
             resource_tile = rubble_tile
-            tile_amount = self.obs["board"]["rubble"][resource_tile[0]][resource_tile[1]]
+            tile_amount = self.board["rubble"][resource_tile[0]][resource_tile[1]]
         elif lichen_tile is not None:
             self.agent.unit_states[self.unit.unit_id] = "attacking"
             resource_tile = lichen_tile
-            tile_amount = self.obs["board"]["lichen"][resource_tile[0]][resource_tile[1]]
+            tile_amount = self.board["lichen"][resource_tile[0]][resource_tile[1]]
             target_factory = self.optimal_recharge_factory()
             if target_factory is None:
                 target_factory = self.target_factory
@@ -60,7 +60,7 @@ class QueueBuilder:
                 # if you're a heavy, don't swipe a mining tile form another heavy just because you have a lower uid than them
                 heavy_tiles = [u.pos for u in self.agent.my_heavy_units if u.unit_id != self.unit.unit_id]
                 dibs_tiles.extend(heavy_tiles)
-            resource_tile = closest_resource_tile(resource, target_factory.pos, dibs_tiles, self.obs)
+            resource_tile = closest_resource_tile(resource, target_factory.pos, dibs_tiles, self.board)
             tile_amount = None
 
         if resource_tile is None:
@@ -174,7 +174,7 @@ class QueueBuilder:
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
         max_power = 3000 if self.unit.unit_type == "HEAVY" else 150
         power_remaining = self.unit.power
-        lichen_amounts = self.obs["board"]["lichen"]
+        lichen_amounts = self.board["lichen"]
         position = self.unit.pos
         queue = []
 
@@ -185,7 +185,7 @@ class QueueBuilder:
             dibbed_tiles.extend(pos_list)
 
         # FIND LICHEN
-        lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.obs, priority=True)
+        lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.board, priority=True)
         if lichen_tile is None:
             # print(f'Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue while attacking'
             #       f' and cant find lichen!', file=sys.stderr)
@@ -231,7 +231,7 @@ class QueueBuilder:
             # set position to previous lichen tile
             position = lichen_tile
             # find new lichen tile, closest to the previous lichen tile because that's where you will be
-            lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.obs)
+            lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.board)
             if lichen_tile is None:
                 # if you can't find another lichen tile, break the loop
                 break
@@ -288,7 +288,7 @@ class QueueBuilder:
         return queue
 
         # TODO: this is the square idea
-        # lichen_tiles = np.copy(self.obs["board"]["lichen_strains"])
+        # lichen_tiles = np.copy(self.board["lichen_strains"])
         # for pos in dibbed_tiles:
         #     x = int(pos[0])
         #     y = int(pos[1])
@@ -300,8 +300,8 @@ class QueueBuilder:
         #
         # lichen_group = get_lichen_in_square(lichen_tiles, self.agent.opp_strains, priority_factory.pos, 3)
         # if lichen_group is None:
-        #     lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.obs, priority=True)
-        # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.obs, priority=True, group=lichen_group)
+        #     lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board, priority=True)
+        # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board, priority=True, group=lichen_group)
 
     def build_recharge_queue(self, occupied=None, factory=None, slow_charge=False, attacking=False, in_danger=False) -> list:
         # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
@@ -494,8 +494,8 @@ class QueueBuilder:
 
         # do not wait on a resource tile
         occupied_or_resources = list(self.agent.occupied_next)
-        ice = self.obs['board']['ice']
-        ore = self.obs['board']['ore']
+        ice = self.board['ice']
+        ore = self.board['ore']
         ice_positions = np.column_stack(np.where(ice == 1))
         ore_positions = np.column_stack(np.where(ore == 1))
         occupied_or_resources.extend(ice_positions)
@@ -732,14 +732,14 @@ class QueueBuilder:
             move_cost = 1
 
         total_cost = 0
-        rubble_map = self.obs["board"]["rubble"]
+        rubble_map = self.board["rubble"]
         for pos in path_positions:
             rubble_cost = floor(rubble_map[pos[0]][pos[1]] * multiplier)
             total_cost += (rubble_cost + move_cost)
         return total_cost
 
     def get_path_positions(self, start: np.ndarray, finish: np.ndarray, recharging=False, occupied=None) -> list:
-        rubble_map = self.obs["board"]["rubble"]
+        rubble_map = self.board["rubble"]
         if occupied is None:
             occupied_next = list(self.agent.occupied_next)
         else:

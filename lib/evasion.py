@@ -5,7 +5,7 @@ from lib.queue_builder import QueueBuilder
 from lib.utils import *
 
 
-def evasion_check(self, unit, target_factory, opp_units, obs):
+def evasion_check(self, unit, target_factory, opp_units, board):
     if unit.unit_type == "HEAVY":
         threshold = 100
         recharge_rate = 10
@@ -50,7 +50,7 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
             avoid_these_tiles.add((opp_unit.pos[0], opp_unit.pos[1]))
 
     # # if you are out of power, recharge
-    q_builder = QueueBuilder(self, unit, target_factory, obs)
+    q_builder = QueueBuilder(self, unit, target_factory, board)
     path_home = q_builder.get_path_positions(unit.pos, target_factory.pos, occupied=avoid_positions)
     cost_home = q_builder.get_path_cost(path_home)
 
@@ -139,7 +139,7 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
                 direction = move_toward(unit.pos, target_factory.pos, self.occupied_next)
 
         new_pos = next_position(unit.pos, direction)
-        cost = move_cost(unit, new_pos, self.obs)
+        cost = move_cost(unit, new_pos, self.obs['board'])
 
         # if you don't have enough power for the first move
         if unit.power < cost:

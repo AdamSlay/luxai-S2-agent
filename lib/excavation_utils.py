@@ -47,20 +47,20 @@ def next_positions_to_clear(obs, strain_id, opp_strains, off_limits):
     return np.array(positions_to_clear)
 
 
-def get_position_with_lowest_rubble(positions_to_clear, off_limits, obs, factory):
+def get_position_with_lowest_rubble(positions_to_clear, off_limits, board, factory):
     positions_to_clear = [(pos[0], pos[1]) for pos in positions_to_clear]
     off_limits = [(pos[0], pos[1]) for pos in off_limits]
 
     # Filter out off-limits positions
     filtered_positions_to_clear = [pos for pos in positions_to_clear if pos not in off_limits]
-    rubble_map = obs["board"]["rubble"]
+    rubble_map = board["rubble"]
     rubble_values_raw = [rubble_map[x, y] for x, y in filtered_positions_to_clear if rubble_map[x, y] > 0]
     rubble_values_under_thirty = [[x, y] for x, y in filtered_positions_to_clear if rubble_map[x, y] <= 30]
 
     # try to get the closest low rubble tile
     if len(rubble_values_under_thirty) > 0:
         # passing off_limits here has no effect, the positions have already been filtered
-        closest_low_rubble = closest_rubble_tile_in_group(factory.pos, off_limits, rubble_values_under_thirty, obs)
+        closest_low_rubble = closest_rubble_tile_in_group(factory.pos, off_limits, rubble_values_under_thirty, board)
         if closest_low_rubble is not None:
             return closest_low_rubble
 
