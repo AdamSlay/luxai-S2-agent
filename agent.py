@@ -528,10 +528,10 @@ class Agent():
                 if task in heavy_tasks_needed:
                     heavy_tasks_needed.remove(task)
 
-            print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
-            print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
-            print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
-            print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} light tasks being done: {light_tasks_being_done}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} heavy tasks being done: {heavy_tasks_being_done}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} light tasks needed: {light_tasks_needed}", file=sys.stderr)
+            # print(f"Step {self.step}: {fid} heavy tasks needed: {heavy_tasks_needed}", file=sys.stderr)
             if light_tasks_needed:
                 self.factory_needs_light[fid] = light_tasks_needed
             elif not light_tasks_needed:
@@ -706,13 +706,10 @@ class Agent():
             self.pop_factory_needs(task_factory, light=light)
 
         else:
-            print(f"Step {self.step}: No light needs for factory {task_factory.unit_id}",
-                  file=sys.stderr)
             # check the other factories in order of nearness to this one and see if they need help
             # if they do, switch to helping them
             factory_in_need = self.find_closest_factory_with_needs(task_factory, factory_needs)
             if factory_in_need is not None:
-                print(f"Step {self.step}: Switching to helping factory {factory_in_need.unit_id}", file=sys.stderr)
                 # make factory_in_need the new task_factory
                 task_factory = factory_in_need
 

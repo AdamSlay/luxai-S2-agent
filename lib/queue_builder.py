@@ -48,9 +48,6 @@ class QueueBuilder:
         if rubble_tile is not None:
             resource_tile = rubble_tile
             tile_amount = self.obs["board"]["rubble"][resource_tile[0]][resource_tile[1]]
-            print(
-                f"Step {self.agent.step}: Unit {self.unit.unit_id} is mining rubble at {resource_tile}, tile_amt = {tile_amount}, resource = {resource}!",
-                file=sys.stderr)
         elif lichen_tile is not None:
             self.agent.unit_states[self.unit.unit_id] = "attacking"
             resource_tile = lichen_tile
@@ -67,7 +64,6 @@ class QueueBuilder:
             tile_amount = None
 
         if resource_tile is None:
-            print(f"{self.unit.unit_id} can't find a resource tile!", file=sys.stderr)
             # can't find a resource, return None and get back into the decision tree
             return None
         dibs[self.unit.unit_id] = resource_tile
@@ -191,7 +187,8 @@ class QueueBuilder:
         # FIND LICHEN
         lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.obs, priority=True)
         if lichen_tile is None:
-            print(f'Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue while attacking and cant find lichen!', file=sys.stderr)
+            print(f'Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue while attacking'
+                  f' and cant find lichen!', file=sys.stderr)
             return None  # if there is no lichen, return None and go back through decision tree
 
         # PATHS AND COSTS
@@ -281,9 +278,6 @@ class QueueBuilder:
                 power_remaining -= digs * dig_cost
 
                 dibs[self.unit.unit_id].append(lichen_tile)
-                if self.unit.unit_type == "HEAVY":
-                    print(f"Step {self.agent.step}: {self.unit.unit_id} is starting from {self.unit.pos} "
-                          f"and is placing dibs on these tiles: {dibs[self.unit.unit_id]}", file=sys.stderr)
                 # end of loop
 
         # after breaking out of loop, add path from lichen tile to factory
@@ -317,9 +311,6 @@ class QueueBuilder:
         self.clear_previous_task()
         target_factory = self.target_factory
         if factory is not None:
-            print(
-                f"Step {self.agent.step} - {self.unit.unit_id} is recharging at an abnormal factory: {factory.unit_id}",
-                file=sys.stderr)
             target_factory = factory
 
         queue = []
@@ -466,9 +457,6 @@ class QueueBuilder:
         return queue
 
     def build_low_battery_queue(self, desired_power: int) -> list:
-        print(
-            f"Step {self.agent.step}: {self.unit.unit_id} is low on battery and is waiting for {desired_power} power\n"
-            f"Heavy tasks: {self.agent.factory_tasks_heavy}\n", file=sys.stderr)
         self.agent.unit_states[self.unit.unit_id] = "low battery"
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
@@ -534,9 +522,6 @@ class QueueBuilder:
             self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
             queue = self.build_recharge_queue(avoid_positions, in_danger=True)
             if len(queue) == 0:
-                print(
-                    f"Step {self.agent.step}: {self.unit.unit_id} couldn't find a recharge path that avoids positions",
-                    file=sys.stderr)
                 queue = self.build_recharge_queue(self.agent.occupied_next)
             return queue
 
@@ -548,8 +533,6 @@ class QueueBuilder:
             # If you're in a precarious situation, retreat
             direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
             if direction == 0:
-                print(f"Step {self.agent.step}: {self.unit.unit_id} coulnd't find direction while avoiding positions",
-                      file=sys.stderr)
                 # if you can't find a direction while avoiding threats, try to find a direction without avoiding threats
                 direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
             queue = [self.unit.move(direction)]
@@ -663,7 +646,6 @@ class QueueBuilder:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
             elif self.unit.cargo.ore > 400:
                 queue.append(self.unit.transfer(transfer_direction, 1, self.unit.cargo.ore))
-        print(f"Step {self.agent.step}: {self.unit.unit_id} THIS IS THE WEIRD QUEUE: {queue}", file=sys.stderr)
         return queue, cost
 
     def get_dibs_class(self):
