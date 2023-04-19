@@ -1,5 +1,5 @@
 # from math import floor
-
+from copy import deepcopy
 from lib.dijkstra import dijkstras_path
 from lib.utils import *
 
@@ -173,9 +173,9 @@ class QueueBuilder:
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
         max_power = 3000 if self.unit.unit_type == "HEAVY" else 150
-        power_remaining = deepcopy(self.unit.power)
+        power_remaining = self.unit.power
         lichen_amounts = self.obs["board"]["lichen"]
-        position = deepcopy(self.unit.pos)
+        position = self.unit.pos
         queue = []
 
         # DIBBED TILES
@@ -229,7 +229,7 @@ class QueueBuilder:
             for pos_list in dibbed_lists:
                 dibbed_tiles.extend(pos_list)
             # set position to previous lichen tile
-            position = deepcopy(lichen_tile)
+            position = lichen_tile
             # find new lichen tile, closest to the previous lichen tile because that's where you will be
             lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.obs)
             if lichen_tile is None:
@@ -288,7 +288,7 @@ class QueueBuilder:
         return queue
 
         # TODO: this is the square idea
-        # lichen_tiles = deepcopy(self.obs["board"]["lichen_strains"])
+        # lichen_tiles = np.copy(self.obs["board"]["lichen_strains"])
         # for pos in dibbed_tiles:
         #     x = int(pos[0])
         #     y = int(pos[1])
@@ -320,7 +320,7 @@ class QueueBuilder:
         pickup_amt = self.get_pickup_amt(target_factory)
 
         pos = (self.unit.pos[0], self.unit.pos[1])
-        occupied_next = deepcopy(self.agent.occupied_next)
+        occupied_next = self.agent.occupied_next.copy()
         occupied_next.add((target_factory.pos[0], target_factory.pos[1]))
         in_position = on_tile(self.unit.pos, return_tile)
         in_occupied = pos in occupied_next
@@ -467,8 +467,8 @@ class QueueBuilder:
         else:
             solar_charge = 1
 
-        step = deepcopy(self.agent.step)
-        power_required = deepcopy(desired_power)
+        step = self.agent.step
+        power_required = desired_power
         waits = 0
         while power_required >= 0:
             queue.append(self.unit.move(0))
@@ -493,7 +493,7 @@ class QueueBuilder:
         self.clear_previous_task()
 
         # do not wait on a resource tile
-        occupied_or_resources = deepcopy(list(self.agent.occupied_next))
+        occupied_or_resources = list(self.agent.occupied_next)
         ice = self.obs['board']['ice']
         ore = self.obs['board']['ore']
         ice_positions = np.column_stack(np.where(ice == 1))
@@ -741,7 +741,7 @@ class QueueBuilder:
     def get_path_positions(self, start: np.ndarray, finish: np.ndarray, recharging=False, occupied=None) -> list:
         rubble_map = self.obs["board"]["rubble"]
         if occupied is None:
-            occupied_next = list(deepcopy(self.agent.occupied_next))
+            occupied_next = list(self.agent.occupied_next)
         else:
             occupied_next = list(occupied)
 
@@ -756,17 +756,17 @@ class QueueBuilder:
                 occupied_next.extend(cardinal_tiles)
 
         opp_factory_tiles = list(self.agent.opp_factory_tiles)
-        cheap_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles)
+        # cheap_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles)
         # return cheap_path
         fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
-        if fast_path is not None and cheap_path is not None:
-            fast_cost = self.get_path_cost(fast_path)
-            cheap_cost = self.get_path_cost(cheap_path)
-            if fast_cost < cheap_cost:
-                return fast_path
-
-        if cheap_path is not None:
-            return cheap_path
+        # if fast_path is not None and cheap_path is not None:
+        #     fast_cost = self.get_path_cost(fast_path)
+        #     cheap_cost = self.get_path_cost(cheap_path)
+        #     if fast_cost < cheap_cost:
+        #         return fast_path
+        #
+        # if cheap_path is not None:
+        #     return cheap_path
         return fast_path
 
     def get_path_moves(self, path_positions: list) -> list:

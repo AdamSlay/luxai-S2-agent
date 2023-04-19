@@ -1,5 +1,6 @@
 # import numpy as np
 # import sys
+# from copy import deepcopy
 from math import ceil
 
 from lib.dijkstra import dijkstras_path
@@ -631,7 +632,7 @@ class Agent():
         return self.my_factories[closest_factory_id]
 
     def rubble_digging_task_assignment(self, q_builder, resource, task_factory, light=False):
-        off_limits = deepcopy(self.my_factory_tiles)
+        off_limits = self.my_factory_tiles
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
         if light:
             light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
@@ -645,7 +646,7 @@ class Agent():
                 lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.obs)
             queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
         else:
-            off_limits_or_dibbed = deepcopy(list(self.occupied_next))
+            off_limits_or_dibbed = list(self.occupied_next)
             off_limits_or_dibbed.extend(dibbed_tiles)
             positions_to_clear = next_positions_to_clear(self.obs, task_factory.strain_id,
                                                          self.opp_strains,
@@ -942,11 +943,6 @@ class Agent():
                     self.decision_tree(unit, factories, opp_units, obs)
                     self.mining_adjacent.add(unit.unit_id)
 
-        # then get actions for heavies that weren't mining adjacent
-        for unit in heavies:
-            if unit.unit_id not in self.mining_adjacent:
-                self.decision_tree(unit, factories, opp_units, obs)
-
         # first get actions for lights that were previously helping
         for unit in lights:
             if unit.unit_id in self.unit_states.keys():
@@ -954,6 +950,11 @@ class Agent():
                 if state == "helping":
                     self.decision_tree(unit, factories, opp_units, obs)
                     self.helper_treated.add(unit.unit_id)
+
+        # then get actions for heavies that weren't mining adjacent
+        for unit in heavies:
+            if unit.unit_id not in self.mining_adjacent:
+                self.decision_tree(unit, factories, opp_units, obs)
 
         # then get actions for lights that weren't helping
         for unit in lights:

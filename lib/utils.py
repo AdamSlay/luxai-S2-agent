@@ -2,7 +2,7 @@ from math import floor
 import random
 import sys
 
-from copy import deepcopy
+# from copy import deepcopy
 import numpy as np
 
 from scipy.ndimage import distance_transform_cdt
@@ -193,7 +193,7 @@ def closest_factory_tile(factory_pos: np.ndarray, position: np.ndarray, heavies)
 
 
 def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, obs):
-    tile_map = deepcopy(obs["board"][resource])
+    tile_map = np.copy(obs["board"][resource])
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
@@ -209,7 +209,7 @@ def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, ob
 
 def closest_rubble_tile(start: np.ndarray, off_limits: list, obs):
     """Finds the closest rubble tile to the unit that is not occupied by a unit or a factory"""
-    tile_map = deepcopy(obs["board"]["rubble"])
+    tile_map = np.copy(obs["board"]["rubble"])
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
@@ -278,8 +278,8 @@ def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
 
 
 def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, obs, priority=False, tile_amount=0, group=None):
-    lichen_tiles = deepcopy(obs["board"]["lichen_strains"])
-    lichen_amounts = deepcopy(obs["board"]["lichen"])
+    lichen_tiles = np.copy(obs["board"]["lichen_strains"])
+    lichen_amounts = np.copy(obs["board"]["lichen"])
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])

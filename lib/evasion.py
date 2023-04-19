@@ -1,3 +1,5 @@
+# from copy import deepcopy
+
 from lib.evasion_utils import *
 from lib.queue_builder import QueueBuilder
 from lib.utils import *
@@ -21,7 +23,7 @@ def evasion_check(self, unit, target_factory, opp_units, obs):
     danger_far_units, danger_far = get_opp_units_on_tiles(unit, opp_units, second_level_tiles)
 
     # Positions to avoid
-    avoid_positions = deepcopy(list(self.occupied_next))
+    avoid_positions = list(self.occupied_next)
     avoid_these_tiles = set()
 
     # Find the positions that I do not want to move to, append them to avoid_positions

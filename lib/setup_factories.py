@@ -44,8 +44,8 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
         my_turn_to_place = my_turn_to_place_factory(game_state.teams[self.player].place_first, step)
 
         if factories_to_place > 0 and my_turn_to_place:
-            ice = deepcopy(obs["board"]["ice"])
-            ore = deepcopy(obs["board"]["ore"])
+            ice = np.copy(obs["board"]["ice"])
+            ore = np.copy(obs["board"]["ore"])
             factory_centers = self.my_factory_centers
 
             # If there are no resources left, don't mask anything
