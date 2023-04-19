@@ -421,9 +421,9 @@ def truncate_actions(actions):
     return truncated
 
 
-def get_path_cost(path_positions: list, obs) -> int:
+def get_path_cost(path_positions: list, board) -> int:
     total_cost = 0
-    rubble_map = obs["board"]["rubble"]
+    rubble_map = board["rubble"]
     for pos in path_positions:
         rubble_cost = rubble_map[pos[0]][pos[1]]
         total_cost += rubble_cost

@@ -22,7 +22,6 @@ class Agent():
         np.random.seed(0)
         self.env_cfg: EnvConfig = env_cfg
         self.step = 0
-        self.obs = None
         self.board = None
         self.opp_strains = []  # list of strains
         self.my_strains = []
@@ -158,11 +157,11 @@ class Agent():
 
     def set_ore_path_costs(self):
         for fid, path in self.ore_paths.items():
-            self.ore_path_costs[fid] = get_path_cost(path, self.obs)
+            self.ore_path_costs[fid] = get_path_cost(path, self.board)
 
     def set_clearing_path_costs(self):
         for fid, path in self.clearing_paths.items():
-            self.clearing_path_costs[fid] = get_path_cost(path, self.obs)
+            self.clearing_path_costs[fid] = get_path_cost(path, self.board)
 
     def check_valid_dig(self, unit):
         if self.action_queue[unit.unit_id][0][0] == 3:
@@ -410,9 +409,9 @@ class Agent():
 
                 # do I have room to grow lichen?
                 free_spaces_wanted = 10
-                needs_excavation, free_spaces_actual = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, free_spaces_wanted)
-                primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
-                zone_cost = get_total_rubble(self.obs, primary_zone)
+                needs_excavation, free_spaces_actual = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, self.occupied_next, free_spaces_wanted)
+                primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.board)
+                zone_cost = get_total_rubble(self.board, primary_zone)
                 cost_to_clearing = self.clearing_path_costs[fid]
                 if (needs_excavation or zone_cost > 0) and cost_to_ore == 0:
                     if zone_cost == 0:
@@ -501,7 +500,7 @@ class Agent():
                 heavy_todo.append("ore")
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
-            surrounded, free_spaces = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
+            surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, self.occupied_next, 10)
             if surrounded and free_spaces < 3:
                 # # if so, then I need to excavate either a clearing path or immediate zone
                 heavy_todo.append("rubble")
@@ -639,8 +638,8 @@ class Agent():
             light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
             dibbed_tiles.extend(light_dibbed_tiles)
 
-        primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.obs)
-        zone_cost = get_total_rubble(self.obs, primary_zone)
+        primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.board)
+        zone_cost = get_total_rubble(self.board, primary_zone)
         if zone_cost > 0:
             lowest_rubble_pos = get_position_with_lowest_rubble(primary_zone, dibbed_tiles, self.board, task_factory)
             if lowest_rubble_pos is None:
@@ -649,7 +648,7 @@ class Agent():
         else:
             off_limits_or_dibbed = list(self.occupied_next)
             off_limits_or_dibbed.extend(dibbed_tiles)
-            positions_to_clear = next_positions_to_clear(self.obs, task_factory.strain_id,
+            positions_to_clear = next_positions_to_clear(self.board, task_factory.strain_id,
                                                          self.opp_strains,
                                                          off_limits=off_limits_or_dibbed)
             if len(positions_to_clear) > 0:
@@ -878,7 +877,6 @@ class Agent():
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
         # initial step setup, these are the basic vars that we need to have
-        self.obs = obs
         self.board = obs['board']
         game_state = obs_to_game_state(step, self.env_cfg, obs)
         factories = game_state.factories[self.player]

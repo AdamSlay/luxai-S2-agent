@@ -1,5 +1,5 @@
 # from math import floor
-from copy import deepcopy
+# from copy import deepcopy
 from lib.dijkstra import dijkstras_path
 from lib.utils import *
 
@@ -9,7 +9,7 @@ class QueueBuilder:
         self.agent = agent
         self.unit = unit
         self.target_factory = target_factory
-        self.board = deepcopy(board)
+        self.board = board
 
     def build_mining_queue(self, resource: str, rubble_tile=None, lichen_tile=None) -> list or None:
         self.agent.unit_states[self.unit.unit_id] = "mining"
@@ -732,14 +732,14 @@ class QueueBuilder:
             move_cost = 1
 
         total_cost = 0
-        rubble_map = self.board["rubble"]
+        rubble_map =self.board["rubble"]
         for pos in path_positions:
             rubble_cost = floor(rubble_map[pos[0]][pos[1]] * multiplier)
             total_cost += (rubble_cost + move_cost)
         return total_cost
 
     def get_path_positions(self, start: np.ndarray, finish: np.ndarray, recharging=False, occupied=None) -> list:
-        rubble_map = self.board["rubble"]
+        rubble_map = np.copy(self.board["rubble"])
         if occupied is None:
             occupied_next = list(self.agent.occupied_next)
         else:

@@ -1,10 +1,10 @@
 from lib.utils import *
 
 
-def lichen_surrounded(obs, strain_id, opp_strains, off_limits, x) -> (bool, int):
-    lichen_map = obs["board"]["lichen"]
-    lichen_strains_map = obs["board"]["lichen_strains"]
-    rubble_map = obs["board"]["rubble"]
+def lichen_surrounded(board, strain_id, opp_strains, off_limits, x) -> (bool, int):
+    lichen_map = board["lichen"]
+    lichen_strains_map = board["lichen_strains"]
+    rubble_map = board["rubble"]
 
     my_lichen_positions = np.argwhere((lichen_strains_map == strain_id) & (lichen_map > 0))
     off_limits = [tuple(pos) for pos in off_limits]
@@ -26,10 +26,9 @@ def lichen_surrounded(obs, strain_id, opp_strains, off_limits, x) -> (bool, int)
     return (free_spaces < x), free_spaces  # Lichen is considered surrounded if there are less than x free spaces
 
 
-def next_positions_to_clear(obs, strain_id, opp_strains, off_limits):
-    lichen_map = obs["board"]["lichen"]
-    lichen_strains_map = obs["board"]["lichen_strains"]
-    rubble_map = obs["board"]["rubble"]
+def next_positions_to_clear(board, strain_id, opp_strains, off_limits):
+    lichen_strains_map = board["lichen_strains"]
+    rubble_map = board["rubble"]
 
     my_lichen_positions = np.argwhere((lichen_strains_map == strain_id))
     off_limits = [tuple(pos) for pos in off_limits]
@@ -71,8 +70,8 @@ def get_position_with_lowest_rubble(positions_to_clear, off_limits, board, facto
     return positions_to_clear[min_rubble_index]
 
 
-def get_orthogonal_positions(center, n, off_limits, obs):
-    rubble_map = obs["board"]["rubble"]
+def get_orthogonal_positions(center, n, off_limits, board):
+    rubble_map = board["rubble"]
     off_limits = [tuple(pos) for pos in off_limits]
     x, y = center
     valid_positions = set()
@@ -95,8 +94,8 @@ def get_orthogonal_positions(center, n, off_limits, obs):
     return np.array(list(valid_positions))
 
 
-def get_total_rubble(obs, tiles):
-    rubble_map = obs["board"]["rubble"]
+def get_total_rubble(board, tiles):
+    rubble_map = board["rubble"]
     total_rubble = 0
     for tile in tiles:
         total_rubble += rubble_map[tile[0]][tile[1]]

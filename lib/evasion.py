@@ -139,7 +139,7 @@ def evasion_check(self, unit, target_factory, opp_units, board):
                 direction = move_toward(unit.pos, target_factory.pos, self.occupied_next)
 
         new_pos = next_position(unit.pos, direction)
-        cost = move_cost(unit, new_pos, self.obs['board'])
+        cost = move_cost(unit, new_pos, board)
 
         # if you don't have enough power for the first move
         if unit.power < cost:
