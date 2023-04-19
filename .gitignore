@@ -1,5 +1,5 @@
 __pycache__
-submission.tar.gz
+*.tar.gz
 *.idea
 .idea*
 .idea

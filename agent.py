@@ -881,7 +881,7 @@ class Agent():
         game_state = obs_to_game_state(step, self.env_cfg, obs)
         factories = game_state.factories[self.player]
         opp_factories = game_state.factories[self.opp_player]
-        all_factories = factories | opp_factories
+        all_factories = {**factories, **opp_factories}
         units = game_state.units[self.player]
         opp_units = game_state.units[self.opp_player]
         # global vars
