@@ -309,7 +309,7 @@ class QueueBuilder:
         #     lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.obs, priority=True)
         # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.obs, priority=True, group=lichen_group)
 
-    def build_recharge_queue(self, occupied=None, factory=None, slow_charge=False, attacking=False) -> list:
+    def build_recharge_queue(self, occupied=None, factory=None, slow_charge=False, attacking=False, in_danger=False) -> list:
         # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
         self.agent.unit_states[self.unit.unit_id] = "recharging"
         self.clear_mining_dibs()
@@ -382,6 +382,15 @@ class QueueBuilder:
                 path_home = self.get_path_positions(self.unit.pos, target_factory.pos)
                 cost_home = self.get_path_cost(path_home)
                 if self.unit.power < cost_home:
+
+                    if in_danger:
+                        next_dir = move_toward(self.unit.pos, target_factory.pos, self.agent.occupied_next)
+                        next_pos = next_position(self.unit.pos, next_dir)
+                        cost_to_next = self.get_path_cost([next_pos])
+                        if self.unit.power > cost_to_next:
+                            queue = [self.unit.move(next_dir)]
+                            return queue
+
                     cost_remaining = cost_home - self.unit.power
                     queue = self.build_low_battery_queue(cost_remaining)
                     return queue
@@ -523,7 +532,7 @@ class QueueBuilder:
         cost_home = self.get_path_cost(path_home)
         if self.unit.power < cost_home + reserve_power:
             self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
-            queue = self.build_recharge_queue(avoid_positions)
+            queue = self.build_recharge_queue(avoid_positions, in_danger=True)
             if len(queue) == 0:
                 print(
                     f"Step {self.agent.step}: {self.unit.unit_id} couldn't find a recharge path that avoids positions",
@@ -766,14 +775,17 @@ class QueueBuilder:
 
         opp_factory_tiles = list(self.agent.opp_factory_tiles)
         cheap_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles)
+        return cheap_path
         # fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
         # if fast_path is not None and cheap_path is not None:
         #     fast_cost = self.get_path_cost(fast_path)
         #     cheap_cost = self.get_path_cost(cheap_path)
         #     if fast_cost < cheap_cost:
         #         return fast_path
-
-        return cheap_path
+        #
+        # if cheap_path is not None:
+        #     return cheap_path
+        # return fast_path
 
     def get_path_moves(self, path_positions: list) -> list:
         moves = []

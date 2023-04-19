@@ -78,6 +78,7 @@ class Agent():
         self.low_reserve_power = {"LIGHT": 10, "HEAVY": 100}
 
         # Mining Adjacent and Helper
+        self.last_state = dict()  # whatever your last state was
         self.helper_treated = set()
         self.mining_adjacent = set()
 
@@ -410,10 +411,10 @@ class Agent():
                 needs_excavation, free_spaces_actual = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, free_spaces_wanted)
                 primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.obs)
                 zone_cost = get_total_rubble(self.obs, primary_zone)
+                cost_to_clearing = self.clearing_path_costs[fid]
                 if (needs_excavation or zone_cost > 0) and cost_to_ore == 0:
                     if zone_cost == 0:
                         # check to see if clearing a path is necessary
-                        cost_to_clearing = self.clearing_path_costs[fid]
                         if cost_to_clearing > 0:
                             excavators_needed = ceil(cost_to_clearing / 40)
                             excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
@@ -469,14 +470,18 @@ class Agent():
                 # # if not, then I need to mine ice
                 heavy_todo.append("ice")
 
+            if self.step > 100:
+                cost_to_clearing = self.clearing_path_costs[fid]
+                if cost_to_clearing > 0:
+                    heavy_todo.append("clearing path")
+
             # are you dangerously low on water?
             if factory.cargo.water < 150 and number_of_ice > 1:
-                emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
+                emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 2 else 2
                 [heavy_todo.append("ice") for _ in range(emergency_ice_miners)]
 
-            # if I don't need to excavate, do I have enough ore to build bots?
-            if factory.cargo.metal < 100 and number_of_ore > 0 and self.step < 750:
-                # # if not, then I need to mine ore
+            if len(self.my_heavy_units) < len(self.my_factories) * 2:
+                # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
             if self.step >= 100:
@@ -485,11 +490,17 @@ class Agent():
                 closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.obs)
                 if closest_lichen is not None:
                     # if so, then I need to attack
-                    [heavy_todo.append("lichen") for _ in range(2)]
+                    # [heavy_todo.append("lichen") for _ in range(2)]
+                    heavy_todo.append("lichen")
+
+            # if I don't need to excavate, do I have enough ore to build bots?
+            if factory.cargo.metal < 100 and number_of_ore > 0 and self.step < 750 and len(self.my_heavy_units) >= len(self.my_factories) * 2:
+                # # if not, then I need to mine ore
+                heavy_todo.append("ore")
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
             surrounded, free_spaces = lichen_surrounded(self.obs, factory.strain_id, self.opp_strains, self.occupied_next, 10)
-            if surrounded:
+            if surrounded and free_spaces < 3:
                 # # if so, then I need to excavate either a clearing path or immediate zone
                 heavy_todo.append("rubble")
 
@@ -671,6 +682,7 @@ class Agent():
             return queue
 
     def mining_decision(self, task_factory, q_builder, light=False):
+        unit = q_builder.unit
         last_recursion_try = False
         if light:
             factory_needs = self.factory_needs_light
@@ -683,10 +695,16 @@ class Agent():
         q_builder.clear_lichen_dibs()
         q_builder.clear_previous_task()
 
-        # for now, just mine factory_needs in order, but this will be more complex later
-        if task_factory.unit_id in factory_needs.keys():
+        # if you were just attacking, but ran out of queue, try to keep attacking.
+        # if you can't, then you'll naturally recurse to the next task
+        if unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking":
+            _task = "lichen"
+            self.last_state[unit.unit_id] = "recursing"
+
+        elif task_factory.unit_id in factory_needs.keys():
             _task = factory_needs[task_factory.unit_id][0]
             self.pop_factory_needs(task_factory, light=light)
+
         else:
             print(f"Step {self.step}: No light needs for factory {task_factory.unit_id}",
                   file=sys.stderr)
@@ -713,6 +731,7 @@ class Agent():
             else:
                 # if there are no factories in need, attack
                 _task = "lichen"
+                # if there is nothing to do for any factories and you can't find an attack, then stop recursing
                 last_recursion_try = True
 
         resources = ["rubble", "ice", "ore"]
@@ -731,7 +750,7 @@ class Agent():
 
             if queue is None:
                 queue = self.mining_decision(task_factory, q_builder, light=light)
-
+                self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
         # Pathing tasks
@@ -739,6 +758,7 @@ class Agent():
             queue = self.trailblazing_task_assignment(q_builder, _task, task_factory, light=light)
             if queue is None:
                 queue = self.mining_decision(task_factory, q_builder, light=light)
+            self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
         elif first_task_word in helping:
@@ -747,8 +767,8 @@ class Agent():
             queue = q_builder.build_helper_queue(homer)
             if queue is None:
                 queue = self.mining_decision(task_factory, q_builder, light=light)
-            if queue is not None:
-                return queue
+            self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
+            return queue
 
         # Attacking tasks
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
@@ -760,12 +780,15 @@ class Agent():
             if queue is None and not last_recursion_try:
                 queue = self.mining_decision(task_factory, q_builder, light=light)
 
+            self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue if queue is not None else None
 
         # if you made it here, you couldn't find a lichen tile
         print(
             f"Step {self.step}: Factory {task_factory.unit_id} _task {_task} is not in resources, and can't find qeueu",
             file=sys.stderr)
+
+        self.last_state[unit.unit_id] = "idle"
         return None
 
     def decision_tree(self, unit, factories, opp_units, obs):
