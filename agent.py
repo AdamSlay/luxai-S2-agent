@@ -401,7 +401,7 @@ class Agent():
                 max_excavators = 4
                 cost_to_ore = self.ore_path_costs[fid]
                 if cost_to_ore > 0:
-                    excavators_needed = ceil(cost_to_ore / 40)
+                    excavators_needed = ceil(cost_to_ore / 20)
                     excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                     # if not, then I need to excavate a path to the nearest ore
                     [light_todo.append("ore path") for _ in range(excavators_needed)]
@@ -416,7 +416,7 @@ class Agent():
                     if zone_cost == 0:
                         # check to see if clearing a path is necessary
                         if cost_to_clearing > 0:
-                            excavators_needed = ceil(cost_to_clearing / 40)
+                            excavators_needed = ceil(cost_to_clearing / 20)
                             excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                             # if not, then I need to excavate a clearing path
                             [light_todo.append("clearing path") for _ in range(excavators_needed)]
@@ -426,14 +426,14 @@ class Agent():
                             # if not, then I need to excavate edge of lichen
                             [light_todo.append("rubble") for _ in range(excavators_needed)]
                     else:
-                        excavators_needed = ceil(zone_cost / 40)
+                        excavators_needed = ceil(zone_cost / 20)
                         excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                         # # if not, then I need to excavate edge of lichen
                         [light_todo.append("rubble") for _ in range(excavators_needed)]
 
                 # if I have room to grow lichen, do I have enough water to grow lichen?
-                if factory.cargo.water < 200 and number_of_ice >= 2:
-                    ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 3 else 3
+                if factory.cargo.water < 200 and self.step > 150:
+                    ice_miners = number_of_ice if number_of_ice <= 3 else 3
                     # # if not, then I need to mine ice
                     [light_todo.append("ice") for _ in range(ice_miners)]
 
@@ -451,8 +451,8 @@ class Agent():
                         [light_todo.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
-                if factory.cargo.metal < 100 and number_of_ore >= 1:
-                    ore_miners = number_of_ore - 1 if number_of_ore - 1 <= 3 else 3
+                if factory.cargo.metal < 100:
+                    ore_miners = number_of_ore if number_of_ore <= 3 else 3
                     # # if not, then I need to mine ore
                     [light_todo.append("ore") for _ in range(ore_miners)]
 
@@ -810,7 +810,9 @@ class Agent():
         for fid, f in factories.items():
             heavy_tiles = [u.pos for u in self.my_heavy_units]
             closest_heavy = closest_tile_in_group(f.pos, [], heavy_tiles)
-            if closest_heavy is not None and on_tile(unit.pos, closest_heavy):
+            # if closest_heavy is not None and on_tile(unit.pos, closest_heavy):
+            has_no_heavies = len(self.factory_tasks_heavy[fid].keys()) == 0
+            if closest_heavy is not None and on_tile(unit.pos, closest_heavy) and has_no_heavies:
                 task_factory = f
         for factory_id, unit_tasks in factory_tasks.items():
             if unit.unit_id in unit_tasks.keys() and factory_id in factories.keys():

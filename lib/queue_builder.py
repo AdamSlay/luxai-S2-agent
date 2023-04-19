@@ -187,8 +187,8 @@ class QueueBuilder:
         # FIND LICHEN
         lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.obs, priority=True)
         if lichen_tile is None:
-            print(f'Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue while attacking'
-                  f' and cant find lichen!', file=sys.stderr)
+            # print(f'Step {self.agent.step}: Unit {self.unit.unit_id} is building a recharge queue while attacking'
+            #       f' and cant find lichen!', file=sys.stderr)
             return None  # if there is no lichen, return None and go back through decision tree
 
         # PATHS AND COSTS
@@ -505,8 +505,8 @@ class QueueBuilder:
             queue = [self.unit.move(0, n=length)]
         else:
             direction = move_toward(self.unit.pos, self.target_factory.pos, occupied_or_resources)
-            print(f"Unit {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}",
-                  file=sys.stderr)
+            # print(f"Unit {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}",
+            #       file=sys.stderr)
             queue = [self.unit.move(direction), self.unit.move(0, n=length)]
         return queue
 
@@ -757,17 +757,17 @@ class QueueBuilder:
 
         opp_factory_tiles = list(self.agent.opp_factory_tiles)
         cheap_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles)
-        return cheap_path
-        # fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
-        # if fast_path is not None and cheap_path is not None:
-        #     fast_cost = self.get_path_cost(fast_path)
-        #     cheap_cost = self.get_path_cost(cheap_path)
-        #     if fast_cost < cheap_cost:
-        #         return fast_path
-        #
-        # if cheap_path is not None:
-        #     return cheap_path
-        # return fast_path
+        # return cheap_path
+        fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
+        if fast_path is not None and cheap_path is not None:
+            fast_cost = self.get_path_cost(fast_path)
+            cheap_cost = self.get_path_cost(cheap_path)
+            if fast_cost < cheap_cost:
+                return fast_path
+
+        if cheap_path is not None:
+            return cheap_path
+        return fast_path
 
     def get_path_moves(self, path_positions: list) -> list:
         moves = []
