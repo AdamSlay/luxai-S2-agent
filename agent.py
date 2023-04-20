@@ -14,6 +14,7 @@ from lib.setup_factories import setup
 from lux.kit import obs_to_game_state
 from lux.config import EnvConfig
 
+
 # import cProfile
 # profiler = cProfile.Profile()
 
@@ -72,11 +73,12 @@ class Agent():
         self.factory_needs_heavy = dict()  # fid: [ice, ore]  --> what I need
         self.factory_tasks_light = dict()  # {fid: {unit_id :"task"}}  --> what I've got
         self.factory_tasks_heavy = dict()  # {fid: {unit_id :"task"}}  --> what I've got
+        self.factory_homers = dict()  # {fid: unit_id}
 
         # dibs
         self.light_mining_dibs = dict()  # {unit_id: pos}
-        self.heavy_mining_dibs = dict()  # {unit_id: [pos, pos, etc]}
-        self.lichen_dibs = dict()
+        self.heavy_mining_dibs = dict()
+        self.lichen_dibs = dict()  # {unit_id: [pos, pos, etc]}
 
         # reserve power
         self.moderate_reserve_power = {"LIGHT": 15, "HEAVY": 150}
@@ -258,6 +260,12 @@ class Agent():
                 new_unit_states[uid] = self.unit_states[uid]
         self.unit_states = new_unit_states
 
+        new_factory_homers = dict()
+        for fid, uid in self.factory_homers.items():
+            if uid in self.my_units.keys() and fid in self.my_factories.keys():
+                new_factory_homers[fid] = uid
+        self.factory_homers = new_factory_homers
+
     def avoid_collisions(self, unit, state):
         if unit.unit_id in self.action_queue.keys() and state != "low battery":
             queue = self.action_queue[unit.unit_id]
@@ -329,13 +337,15 @@ class Agent():
     def split_heavies_and_lights(self, units):
         helpers, adjacents = [], []
         heavies, lights = [], []
+        homers = []
         for uid, u in units.items():
 
             # this check should go in some sort of unit setup function
             if uid not in self.action_queue.keys():
                 self.action_queue[uid] = []
-
-            if u.unit_type == "HEAVY":
+            if u.unit_id in self.factory_homers.values():
+                homers.append(u)
+            elif u.unit_type == "HEAVY":
                 if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
                     adjacents.append(u)
                 else:
@@ -348,7 +358,7 @@ class Agent():
 
         self.my_heavy_units = heavies
         self.my_light_units = lights
-        return heavies, lights, helpers, adjacents
+        return heavies, lights, helpers, adjacents, homers
 
     def set_factory_type(self, factory):
         fid = factory.unit_id
@@ -387,6 +397,8 @@ class Agent():
             self.factory_tasks_light[fid] = dict()
         if fid not in self.factory_tasks_heavy.keys():
             self.factory_tasks_heavy[fid] = dict()
+        if fid not in self.factory_homers.keys():
+            self.factory_homers[fid] = ''
 
         number_of_ice = self.factory_resources[fid][0]
         number_of_ore = self.factory_resources[fid][1]
@@ -419,7 +431,9 @@ class Agent():
 
                 # do I have room to grow lichen?
                 free_spaces_wanted = 10
-                needs_excavation, free_spaces_actual = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, self.occupied_next, free_spaces_wanted)
+                needs_excavation, free_spaces_actual = lichen_surrounded(self.board, factory.strain_id,
+                                                                         self.opp_strains, self.occupied_next,
+                                                                         free_spaces_wanted)
                 primary_zone = get_orthogonal_positions(factory.pos, 2, self.my_factory_tiles, self.board)
                 zone_cost = get_total_rubble(self.board, primary_zone)
                 cost_to_clearing = self.clearing_path_costs[fid]
@@ -465,15 +479,19 @@ class Agent():
             # # if so, then I need to go help them
 
             # HEAVIES
-            # if it's early in the game, and I'm safe on water, do I have enough ore to build bots?
-            if self.step < 200 and factory.cargo.water > 100 and number_of_ore > 0:
-                # # then I need to mine ore
-                heavy_todo.append("ore")
+            # I always need a homer
+            if self.factory_homers[fid] == '':
+                heavy_todo.append("homer")
 
-            # do I have enough water to grow lichen?
-            if factory.cargo.water < 2000 and number_of_ice > 0:
-                # # if not, then I need to mine ice
-                heavy_todo.append("ice")
+            # # if it's early in the game, and I'm safe on water, do I have enough ore to build bots?
+            # if self.step < 200 and factory.cargo.water > 100 and number_of_ore > 0:
+            #     # # then I need to mine ore
+            #     heavy_todo.append("ore")
+
+            # # do I have enough water to grow lichen?
+            # if factory.cargo.water < 2000 and number_of_ice > 0:
+            #     # # if not, then I need to mine ice
+            #     heavy_todo.append("ice")
 
             if self.step > 100:
                 cost_to_clearing = self.clearing_path_costs[fid]
@@ -499,12 +517,14 @@ class Agent():
                     heavy_todo.append("lichen")
 
             # if I don't need to excavate, do I have enough ore to build bots?
-            if factory.cargo.metal < 100 and number_of_ore > 0 and self.step < 750 and len(self.my_heavy_units) >= len(self.my_factories) * 2:
+            if factory.cargo.metal < 100 and number_of_ore > 0 and self.step < 750 and len(self.my_heavy_units) >= len(
+                    self.my_factories) * 2:
                 # # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
-            surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, self.occupied_next, 10)
+            surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains,
+                                                        self.occupied_next, 10)
             if surrounded and free_spaces < 3:
                 # # if so, then I need to excavate either a clearing path or immediate zone
                 heavy_todo.append("rubble")
@@ -656,7 +676,8 @@ class Agent():
                                                          self.opp_strains,
                                                          off_limits=off_limits_or_dibbed)
             if len(positions_to_clear) > 0:
-                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.board, task_factory)
+                lowest_rubble_pos = get_position_with_lowest_rubble(positions_to_clear, dibbed_tiles, self.board,
+                                                                    task_factory)
                 if lowest_rubble_pos is None:
                     lowest_rubble_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.board)
                 queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
@@ -686,6 +707,16 @@ class Agent():
             queue = q_builder.build_mining_queue("clearing path", rubble_tile=closest_path_pos)
             return queue
 
+    def homer_task_assignment(self, q_builder, _task, task_factory, light=False):
+        number_of_heavies = len(self.my_heavy_units)
+        number_of_factories = len(self.my_factories)
+        need_heavies = number_of_heavies < number_of_factories * 1.5
+        enough_water = task_factory.cargo.water >= 100
+        if self.step < 400 and need_heavies and enough_water:
+            return q_builder.build_mining_queue("ore")
+        else:
+            return q_builder.build_mining_queue("ice")
+
     def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True):
         if light:
             factory_needs = self.factory_needs_light
@@ -701,7 +732,10 @@ class Agent():
 
         # if you were just attacking, but ran out of queue, try to keep attacking.
         # if you can't, then you'll naturally recurse to the next task
-        if unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
+        if unit.unit_id in self.factory_homers.values():
+            _task = "homer"
+
+        elif unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
             _task = "lichen"
             self.last_state[unit.unit_id] = "recursing"
 
@@ -711,7 +745,8 @@ class Agent():
                 _task = tasks_no_lichen[0]
                 self.pop_factory_needs(task_factory, light=light)
             else:
-                print(f"Step {self.step}: {unit.unit_id} has no tasks to do after failing to find lichen", file=sys.stderr)
+                print(f"Step {self.step}: {unit.unit_id} has no tasks to do after failing to find lichen",
+                      file=sys.stderr)
                 queue = q_builder.build_waiting_queue(length=1)
                 return queue
 
@@ -751,11 +786,19 @@ class Agent():
                 queue = q_builder.build_waiting_queue(length=1)
                 return queue
 
+        homer = ["homer"]
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
         helping = ["helper"]
         attacking = ["lichen", "aggro"]
         first_task_word = _task.split(":")[0]
+
+        # Homer tasks
+        if first_task_word in homer:
+            queue = self.homer_task_assignment(q_builder, _task, task_factory, light=light)
+            self.last_state[unit.unit_id] = "homer"
+            self.factory_homers[task_factory.unit_id] = unit.unit_id
+            return queue
 
         # Mining tasks
         if first_task_word in resources:
@@ -836,6 +879,13 @@ class Agent():
         for factory_id, unit_tasks in factory_tasks.items():
             if unit.unit_id in unit_tasks.keys() and factory_id in factories.keys():
                 task_factory = factories[factory_id]
+
+        # if you are a homer, keep your factory!
+        if unit.unit_id in self.factory_homers.values():
+            for fid, f in factories.items():
+                if self.factory_homers[fid] == unit.unit_id:
+                    task_factory = f
+
         q_builder = QueueBuilder(self, unit, task_factory, self.board)
 
         # make sure closest factory is not about to run dry, save it if you have ice
@@ -949,7 +999,10 @@ class Agent():
             self.define_factory_needs(factory)
 
         # Unit Actions
-        heavies, lights, helpers, adjacents = self.split_heavies_and_lights(units)
+        heavies, lights, helpers, adjacents, homers = self.split_heavies_and_lights(units)
+
+        for unit in homers:
+            self.decision_tree(unit, factories, opp_units)
 
         # first get actions for heavies that were previously mining adjacent
         for unit in adjacents:
