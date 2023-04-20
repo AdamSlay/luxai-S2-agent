@@ -409,7 +409,7 @@ class Agent():
                     if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
                         light_todo.append(f"helper:{uid}")
 
-                max_excavators = 4
+                max_excavators = 5
                 cost_to_ore = self.ore_path_costs[fid]
                 if cost_to_ore > 0:
                     excavators_needed = ceil(cost_to_ore / 20)
@@ -420,7 +420,7 @@ class Agent():
                 # do I have room to grow lichen?
                 free_spaces_wanted = 10
                 needs_excavation, free_spaces_actual = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, self.occupied_next, free_spaces_wanted)
-                primary_zone = get_orthogonal_positions(factory.pos, 1, self.my_factory_tiles, self.board)
+                primary_zone = get_orthogonal_positions(factory.pos, 2, self.my_factory_tiles, self.board)
                 zone_cost = get_total_rubble(self.board, primary_zone)
                 cost_to_clearing = self.clearing_path_costs[fid]
                 if (needs_excavation or zone_cost > 0) and cost_to_ore == 0:
@@ -443,8 +443,8 @@ class Agent():
                         [light_todo.append("rubble") for _ in range(excavators_needed)]
 
                 # if I have room to grow lichen, do I have enough water to grow lichen?
-                if factory.cargo.water < 200 and self.step > 150:
-                    ice_miners = number_of_ice if number_of_ice <= 3 else 3
+                if factory.cargo.water < 400 and self.step > 150:
+                    ice_miners = number_of_ice if number_of_ice <= 4 else 4
                     # # if not, then I need to mine ice
                     [light_todo.append("ice") for _ in range(ice_miners)]
 
@@ -456,8 +456,8 @@ class Agent():
                     [light_todo.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
-                if factory.cargo.metal < 100:
-                    ore_miners = number_of_ore if number_of_ore <= 3 else 3
+                if factory.cargo.metal < 100 and self.step > 100:
+                    ore_miners = number_of_ore if number_of_ore <= 10 else 10
                     # # if not, then I need to mine ore
                     [light_todo.append("ore") for _ in range(ore_miners)]
 
@@ -686,9 +686,7 @@ class Agent():
             queue = q_builder.build_mining_queue("clearing path", rubble_tile=closest_path_pos)
             return queue
 
-    def mining_decision(self, task_factory, q_builder, light=False):
-        unit = q_builder.unit
-        last_recursion_try = False
+    def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True):
         if light:
             factory_needs = self.factory_needs_light
             tasks_being_done = self.factory_tasks_light
@@ -699,14 +697,25 @@ class Agent():
         q_builder.clear_mining_dibs()
         q_builder.clear_lichen_dibs()
         q_builder.clear_previous_task()
+        unit = q_builder.unit
 
         # if you were just attacking, but ran out of queue, try to keep attacking.
         # if you can't, then you'll naturally recurse to the next task
-        if unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking":
+        if unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
             _task = "lichen"
             self.last_state[unit.unit_id] = "recursing"
 
-        elif task_factory.unit_id in factory_needs.keys():
+        elif task_factory.unit_id in factory_needs.keys() and not lichen_ok:
+            tasks_no_lichen = [task for task in factory_needs[task_factory.unit_id] if task != "lichen"]
+            if len(tasks_no_lichen) > 0:
+                _task = tasks_no_lichen[0]
+                self.pop_factory_needs(task_factory, light=light)
+            else:
+                print(f"Step {self.step}: {unit.unit_id} has no tasks to do after failing to find lichen", file=sys.stderr)
+                queue = q_builder.build_waiting_queue(length=1)
+                return queue
+
+        elif task_factory.unit_id in factory_needs.keys() and lichen_ok:
             _task = factory_needs[task_factory.unit_id][0]
             self.pop_factory_needs(task_factory, light=light)
 
@@ -717,24 +726,30 @@ class Agent():
             if factory_in_need is not None:
                 # make factory_in_need the new task_factory
                 task_factory = factory_in_need
+                if lichen_ok:
+                    new_factory_needs = factory_needs[task_factory.unit_id]
+                else:
+                    new_factory_needs = [task for task in factory_needs[task_factory.unit_id] if task != "lichen"]
+                    if not new_factory_needs:
+                        print(f"Step {self.step}: {unit.unit_id} has no tasks to do after failing to find lichen",
+                              file=sys.stderr)
+                        queue = q_builder.build_waiting_queue(length=1)
+                        return queue
 
                 # if the factory in need has less than 3 workers, do the first task available
                 # the idea is that the first 2 tasks are usually vital to the factory's survival
-                # we have to make sure those are getting done
                 if len(tasks_being_done[task_factory.unit_id]) < 3:
-                    _task = factory_needs[task_factory.unit_id][0]
+                    _task = new_factory_needs[0]
                     self.pop_factory_needs(task_factory, light=light)
-
                 # if the factory in need has more than 2 workers, do the last task available
                 else:
-                    _task = factory_needs[task_factory.unit_id][-1]
+                    _task = new_factory_needs[-1]
                     self.pop_factory_needs(task_factory, light=light, reverse=True)
 
             else:
-                # if there are no factories in need, attack
-                _task = "lichen"
-                # if there is nothing to do for any factories and you can't find an attack, then stop recursing
-                last_recursion_try = True
+                # if there are no factories in need, wait
+                queue = q_builder.build_waiting_queue(length=1)
+                return queue
 
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
@@ -751,7 +766,7 @@ class Agent():
                 queue = q_builder.build_mining_queue(resource)
 
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
                 self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -759,7 +774,7 @@ class Agent():
         elif first_task_word in pathing:
             queue = self.trailblazing_task_assignment(q_builder, _task, task_factory, light=light)
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
             self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -768,7 +783,7 @@ class Agent():
             homer = self.my_units[homer_id]
             queue = q_builder.build_helper_queue(homer)
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
             self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -777,20 +792,16 @@ class Agent():
         dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
         lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=True)
         if lichen_tile is not None and distance_to(lichen_tile, task_factory.pos) <= 30:
-            queue = q_builder.build_attack_queue()
-            if queue is None and not last_recursion_try:
-                queue = self.mining_decision(task_factory, q_builder, light=light)
+            queue = q_builder.build_attack_queue(lichen_tile)
+            if queue is None:
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False)
 
             self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
-            return queue if queue is not None else None
+            if queue is not None:
+                return queue
 
         # if you made it here, you couldn't find a lichen tile
-        print(
-            f"Step {self.step}: Factory {task_factory.unit_id} _task {_task} is not in resources, and can't find qeueu",
-            file=sys.stderr)
-
-        self.last_state[unit.unit_id] = "idle"
-        return None
+        return q_builder.build_waiting_queue(length=3)
 
     def decision_tree(self, unit, factories, opp_units):
         if unit.unit_type == "LIGHT":
@@ -979,7 +990,7 @@ class Agent():
                 elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
                     total_units = len(units)
                     total_factories = len(factories)
-                    need_basic_lights = total_units < total_factories * 10
+                    need_basic_lights = total_units < total_factories * 20
                     have_plenty_of_heavies = len(self.my_heavy_units) > total_factories * 2
                     if self.factory_needs_light[factory.unit_id] and (need_basic_lights or have_plenty_of_heavies):
                         if self.step > 200:

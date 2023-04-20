@@ -155,7 +155,7 @@ class QueueBuilder:
             queue = queue[:20]
         return queue
 
-    def build_attack_queue(self):
+    def build_attack_queue(self, lichen_tile):
         self.agent.unit_states[self.unit.unit_id] = "attacking"
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
@@ -184,43 +184,50 @@ class QueueBuilder:
         for pos_list in dibbed_lists:
             dibbed_tiles.extend(pos_list)
 
-        # FIND LICHEN
-        lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.board, priority=True)
-        if lichen_tile is None:
-            return None  # if there is no lichen, return None and go back through decision tree
-
         # PATHS AND COSTS
         path_to_lichen = self.get_path_positions(position, lichen_tile)
+        if not path_to_lichen:
+            lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board)
+            if lichen_tile is None:
+                return None
+            path_to_lichen = self.get_path_positions(position, lichen_tile)
+            if not path_to_lichen:
+                print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant find a path {path_to_lichen}', file=sys.stderr)
+                return None
+
+        cost_from_lichen = 0
+        return_path = []
         cost_to_lichen = self.get_path_cost(path_to_lichen)
         if self.agent.step < 930:
             path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
-            if len(path_from_lichen) == 0:
+            if not path_from_lichen:
+                print(
+                    f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but no path_from_lichen {path_from_lichen}',
+                    file=sys.stderr)
                 return None
             cost_from_lichen = self.get_path_cost(path_from_lichen)
             return_path = path_from_lichen
-        else:
-            path_from_lichen = []
-            return_path = []
-            cost_from_lichen = 0
         total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
 
         # CAN YOU AFFORD IT?
         if total_cost > power_remaining:
             if total_cost > max_power:
+                print(
+                    f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but its too expensive: {total_cost}',
+                    file=sys.stderr)
                 return None  # it's not feasible to attack this lichen, return None and go back through decision tree
             return self.build_recharge_queue(factory=target_factory, attacking=True)
 
         # YES YOU CAN
-        if len(path_to_lichen) > 1:
+        if not on_tile(self.unit.pos, lichen_tile):
             queue.extend(self.get_path_moves(path_to_lichen))
-        elif not on_tile(self.unit.pos, lichen_tile):
-            # path to lichen broke, go back to decision tree
-            return None
+
         power_remaining -= cost_to_lichen + reserve_power  # <---------------- accounting for reserve power here
         tile_amount = lichen_amounts[lichen_tile[0]][lichen_tile[1]]
 
         digs = self.get_number_of_digs(power_remaining, cost_to_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
         if digs <= 0:
+            print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant dig digs: {digs}', file=sys.stderr)
             # this task is not feasible for this unit at this time
             return None
 
@@ -336,7 +343,6 @@ class QueueBuilder:
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
         return_tile = closest_factory_tile(target_factory.pos, self.unit.pos, heavies)
         pickup_amt = self.get_pickup_amt(target_factory)
-        print(f"Step {self.agent.step}: {self.unit.unit_id} picking up {pickup_amt} from {target_factory.unit_id}", file=sys.stderr)
         pos = (self.unit.pos[0], self.unit.pos[1])
         occupied_next = self.agent.occupied_next.copy()
         occupied_next.add((target_factory.pos[0], target_factory.pos[1]))
@@ -352,7 +358,7 @@ class QueueBuilder:
 
         # get path home
         if occupied is not None:
-            path_home = self.get_path_positions(self.unit.pos, return_tile, occupied)
+            path_home = self.get_path_positions(self.unit.pos, return_tile, occupied=occupied)
             cost_home = self.get_path_cost(path_home)
         else:
             path_home = self.get_path_positions(self.unit.pos, return_tile)
@@ -634,7 +640,7 @@ class QueueBuilder:
                 direction = direction_to(position, target_factory_tile)
                 return True, direction
         elif self.unit.cargo.ice > 100 or self.unit.cargo.ore > 50:
-            path = self.get_path_positions(position, target_factory_tile, self.agent.occupied_next)
+            path = self.get_path_positions(position, target_factory_tile)
             if len(path) > 0:
                 return True, path
         return False, 8
@@ -740,7 +746,7 @@ class QueueBuilder:
                 pickup_amt = charge_factory.power - 1000
             else:
                 pickup_amt = 3000 - self.unit.power
-        print(f"Step {self.agent.step}: {self.unit.unit_id} is picking up {pickup_amt} from {charge_factory.unit_id}", file=sys.stderr)
+        # print(f"Step {self.agent.step}: {self.unit.unit_id} is picking up {pickup_amt} from {charge_factory.unit_id}", file=sys.stderr)
         return pickup_amt
 
     def get_path_cost(self, path_positions: list, type=None) -> int:
@@ -768,10 +774,7 @@ class QueueBuilder:
         else:
             occupied_next = list(occupied)
 
-        if recharging:
-            opp_unit_positions = [u.pos for uid, u in self.agent.opp_units.items() if u.unit_type == "HEAVY"]
-            occupied_next.extend(opp_unit_positions)
-        if self.unit.unit_type == "LIGHT":
+        if recharging or self.unit.unit_type == "LIGHT":
             opp_heavy_positions = [u.pos for uid, u in self.agent.opp_units.items() if u.unit_type == "HEAVY"]
             occupied_next.extend(opp_heavy_positions)
             for pos in opp_heavy_positions:
