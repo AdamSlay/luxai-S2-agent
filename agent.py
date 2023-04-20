@@ -310,7 +310,28 @@ class Agent():
                 pos = (unit.pos[0], unit.pos[1])
                 self.occupied_next.add(pos)
 
+    def remove_old_next_pos_from_occ_next(self, unit):
+        if unit.unit_id in self.action_queue.keys():
+            queue = self.action_queue[unit.unit_id]
+            # if you have an action queue, check the next position
+            if isinstance(queue, list) and len(queue) > 0:
+
+                # if you're moving, next_pos is the next position
+                if queue[0][0] == 0:
+                    next_pos = next_position(unit.pos, queue[0][1])
+                    old_pos = (next_pos[0], next_pos[1])
+                # otherwise, next_pos is the current position
+                else:
+                    old_pos = (unit.pos[0], unit.pos[1])
+
+                # remove old_pos from occupied_next
+                if old_pos in self.occupied_next:
+                    self.occupied_next.remove(old_pos)
+
     def update_queues(self, unit, queue):
+        # first remove the old next position from occupied_next if it exists
+        self.remove_old_next_pos_from_occ_next(unit)
+
         if isinstance(queue, list) and queue:
             if queue[0][0] == 0:
                 new_pos = next_position(unit.pos, queue[0][1])
@@ -888,14 +909,6 @@ class Agent():
 
         q_builder = QueueBuilder(self, unit, task_factory, self.board)
 
-        # make sure closest factory is not about to run dry, save it if you have ice
-        transferable, transfer_direction = q_builder.transfer_ready(home_pref=False)
-        not_already_transfering = state != "transfering"
-        if closest_factory.cargo.water < 50 and transferable and not_already_transfering:
-            state = "transfering"
-            queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=False)
-            self.update_queues(unit, queue)
-
         need_recharge, path_home, cost_home = q_builder.check_need_recharge()
         self.path_home[unit.unit_id] = path_home
         self.cost_home[unit.unit_id] = cost_home
@@ -904,11 +917,28 @@ class Agent():
             q_builder.clear_mining_dibs()
             q_builder.clear_lichen_dibs()
             queue = q_builder.build_recharge_queue()
+            print(f"Step {self.step}: {unit.unit_id} interrupting queue to recharge", file=sys.stderr)
+            self.remove_old_next_pos_from_occ_next(unit)
+            self.update_queues(unit, queue)
+
+        # make sure closest factory is not about to run dry, save it if you have ice
+        # home_pref=False results in closest_factory
+        transferable, transfer_direction, trans_pos = q_builder.transfer_ready(home_pref=False)
+        not_already_transfering = state != "transferring"
+        if closest_factory.cargo.water < 50 and transferable and not_already_transfering and not need_recharge:
+            state = "transferring"
+            q_builder = QueueBuilder(self, unit, closest_factory, self.board)
+            q_builder.clear_mining_dibs()
+            q_builder.clear_lichen_dibs()
+            queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=True)
+            print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}", file=sys.stderr)
+            self.remove_old_next_pos_from_occ_next(unit)
             self.update_queues(unit, queue)
 
         # Check for evasions now that we have come up with our final queue and any interrupts
         evasion_queue = evasion_check(self, unit, task_factory, opp_units, self.board)
         if evasion_queue is not None:
+            self.remove_old_next_pos_from_occ_next(unit)
             self.update_queues(unit, evasion_queue)
             return
 
