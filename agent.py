@@ -14,6 +14,8 @@ from lib.setup_factories import setup
 from lux.kit import obs_to_game_state
 from lux.config import EnvConfig
 
+# import cProfile
+# profiler = cProfile.Profile()
 
 class Agent():
     def __init__(self, player: str, env_cfg: EnvConfig) -> None:
@@ -57,6 +59,8 @@ class Agent():
         self.factory_clearing_tiles = dict()  # fid: [tile]
         self.ore_path_costs = dict()  # fid: [cost]
         self.clearing_path_costs = dict()  # fid: [cost]
+        self.path_home = dict()  # uid: [path]
+        self.cost_home = dict()  # uid: [cost]
 
         # States
         self.unit_states = dict()  # uid: "state"
@@ -98,6 +102,7 @@ class Agent():
         return queue
 
     def set_ore_paths(self):
+        rubble_map = np.copy(self.board['rubble'])
         for fid, factory in self.my_factories.items():
             self.ore_paths[fid] = []
             # print(f"finding ore path for factory {fid}", file=sys.stderr)
@@ -105,7 +110,6 @@ class Agent():
             if closest_ore is not None:
                 ore_distance = distance_to(closest_ore, factory.pos)
                 if ore_distance < 20:
-                    rubble_map = self.board['rubble']
                     ore_path = dijkstras_path(rubble_map, factory.pos, closest_ore, [], list(self.opp_factory_tiles),
                                               rubble_threshold=60)
                     if len(ore_path) > ore_distance * 2:
@@ -134,15 +138,15 @@ class Agent():
         return best_coord
 
     def set_clearing_paths(self):
+        rubble_map = np.copy(self.board['rubble'])
+        ice_map = np.copy(self.board['ice'])
+        ore_map = np.copy(self.board['ore'])
+        resource_positions = np.column_stack(np.where((ice_map == 1) | (ore_map == 1)))
+        off_limits = [pos for pos in resource_positions]
+        off_limits.extend(list(self.opp_factory_tiles))
         for fid, factory in self.my_factories.items():
             clearing_tile = self.factory_clearing_tiles[fid]
             if clearing_tile is not None:
-                rubble_map = self.board['rubble']
-                ice_map = self.board['ice']
-                ore_map = self.board['ore']
-                resource_positions = np.column_stack(np.where((ice_map == 1) | (ore_map == 1)))
-                off_limits = [pos for pos in resource_positions]
-                off_limits.extend(list(self.opp_factory_tiles))
                 # add all factory tiles to off limits *except* for the home factory
                 my_factory_tiles = [get_factory_tiles(f.pos) for i, f in self.my_factories.items() if i != fid]
                 for tiles in my_factory_tiles:
@@ -254,8 +258,7 @@ class Agent():
                 new_unit_states[uid] = self.unit_states[uid]
         self.unit_states = new_unit_states
 
-    def avoid_collisions(self, unit):
-        state = self.unit_states[unit.unit_id]
+    def avoid_collisions(self, unit, state):
         if unit.unit_id in self.action_queue.keys() and state != "low battery":
             queue = self.action_queue[unit.unit_id]
 
@@ -324,6 +327,7 @@ class Agent():
         return actions_to_submit
 
     def split_heavies_and_lights(self, units):
+        helpers, adjacents = [], []
         heavies, lights = [], []
         for uid, u in units.items():
 
@@ -332,13 +336,19 @@ class Agent():
                 self.action_queue[uid] = []
 
             if u.unit_type == "HEAVY":
-                heavies.append(u)
+                if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
+                    adjacents.append(u)
+                else:
+                    heavies.append(u)
             elif u.unit_type == "LIGHT":
-                lights.append(u)
+                if uid in self.unit_states.keys() and self.unit_states[uid] == "helping":
+                    helpers.append(u)
+                else:
+                    lights.append(u)
 
         self.my_heavy_units = heavies
         self.my_light_units = lights
-        return heavies, lights
+        return heavies, lights, helpers, adjacents
 
     def set_factory_type(self, factory):
         fid = factory.unit_id
@@ -442,14 +452,8 @@ class Agent():
                 dibbed = list(self.light_mining_dibs.values())
                 dibbed.extend(list(self.heavy_mining_dibs.values()))
                 opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-                light_unit = [u for uid, u in self.my_units.items() if u.unit_type == "LIGHT"]
-                light_unit = light_unit[0] if len(light_unit) > 0 else None
-                if light_unit is not None and opp_lichen_tile is not None:
-                    q_builder = QueueBuilder(self, light_unit, factory, self.board)
-                    path_to_lichen = q_builder.get_path_positions(light_unit.pos, opp_lichen_tile)
-                    cost_to_lichen = q_builder.get_path_cost(path_to_lichen)
-                    if opp_lichen_tile is not None and cost_to_lichen <= 40:
-                        [light_todo.append("lichen") for _ in range(4)]
+                if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 20:
+                    [light_todo.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
                 if factory.cargo.metal < 100:
@@ -489,7 +493,7 @@ class Agent():
                 dibbed = list(self.heavy_mining_dibs.values())
                 dibbed.extend(list(self.light_mining_dibs.values()))
                 closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-                if closest_lichen is not None:
+                if closest_lichen is not None and distance_to(factory.pos, closest_lichen) <= 35:
                     # if so, then I need to attack
                     # [heavy_todo.append("lichen") for _ in range(2)]
                     heavy_todo.append("lichen")
@@ -772,8 +776,7 @@ class Agent():
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
         dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
         lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=True)
-        if lichen_tile is not None:
-            # queue = q_builder.build_mining_queue("lichen", lichen_tile=lichen_tile)
+        if lichen_tile is not None and distance_to(lichen_tile, task_factory.pos) <= 30:
             queue = q_builder.build_attack_queue()
             if queue is None and not last_recursion_try:
                 queue = self.mining_decision(task_factory, q_builder, light=light)
@@ -799,17 +802,21 @@ class Agent():
 
         if unit.unit_id not in self.unit_states.keys():
             self.unit_states[unit.unit_id] = "idle"
+            state = self.unit_states[unit.unit_id]
+        else:
+            state = self.unit_states[unit.unit_id]
 
-        self.avoid_collisions(unit)  # make sure you aren't going to collide with a friendly unit
+        self.avoid_collisions(unit, state)  # make sure you aren't going to collide with a friendly unit
 
         # make sure you aren't about to dig up the rubble you just made by clearing opp lichen
-        if len(self.action_queue[unit.unit_id]) > 0 and self.unit_states[unit.unit_id] == "attacking":
+        if len(self.action_queue[unit.unit_id]) > 0 and state == "attacking":
             self.check_valid_dig(unit)
 
-        task_factory = get_closest_factory(factories, unit.pos)
+        closest_factory = get_closest_factory(factories, unit.pos)
+        task_factory = closest_factory
         # if you are the closest heavy to a given factory, you need to be doing tasks for that factory
+        heavy_tiles = [u.pos for u in self.my_heavy_units]
         for fid, f in factories.items():
-            heavy_tiles = [u.pos for u in self.my_heavy_units]
             closest_heavy = closest_tile_in_group(f.pos, [], heavy_tiles)
             # if closest_heavy is not None and on_tile(unit.pos, closest_heavy):
             has_no_heavies = len(self.factory_tasks_heavy[fid].keys()) == 0
@@ -821,12 +828,21 @@ class Agent():
         q_builder = QueueBuilder(self, unit, task_factory, self.board)
 
         # make sure closest factory is not about to run dry, save it if you have ice
-        closest_factory = get_closest_factory(factories, unit.pos)
         transferable, transfer_direction = q_builder.transfer_ready(home_pref=False)
-        not_already_transfering = self.unit_states[unit.unit_id] != "transfering"
+        not_already_transfering = state != "transfering"
         if closest_factory.cargo.water < 50 and transferable and not_already_transfering:
-            self.unit_states[unit.unit_id] = "transfering"
+            state = "transfering"
             queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=False)
+            self.update_queues(unit, queue)
+
+        need_recharge, path_home, cost_home = q_builder.check_need_recharge()
+        self.path_home[unit.unit_id] = path_home
+        self.cost_home[unit.unit_id] = cost_home
+
+        if need_recharge and state != "recharging" and state != "low battery":
+            q_builder.clear_mining_dibs()
+            q_builder.clear_lichen_dibs()
+            queue = q_builder.build_recharge_queue()
             self.update_queues(unit, queue)
 
         # Check for evasions now that we have come up with our final queue and any interrupts
@@ -835,18 +851,6 @@ class Agent():
             self.update_queues(unit, evasion_queue)
             return
 
-        state = self.unit_states[unit.unit_id]
-
-        need_recharge = False
-        if state != "attacking":
-            # for the love of god, just complete your attack run and worry about optimal recharging later
-            need_recharge = q_builder.check_need_recharge()
-
-        if need_recharge and state != "recharging" and state != "low battery":
-            q_builder.clear_mining_dibs()
-            q_builder.clear_lichen_dibs()
-            queue = q_builder.build_recharge_queue()
-            self.update_queues(unit, queue)
         else:  # if you don't need to recharge
 
             # if you don't have a queue, build one
@@ -876,6 +880,7 @@ class Agent():
                 self.add_nextpos_to_occnext(unit)
 
     def act(self, step: int, obs, remainingOverageTime: int = 60):
+        # profiler.enable()
         # initial step setup, these are the basic vars that we need to have
         self.board = obs['board']
         game_state = obs_to_game_state(step, self.env_cfg, obs)
@@ -903,7 +908,7 @@ class Agent():
         self.factory_types = dict()  # Clear out the factory types from last step
         self.factory_needs = dict()  # Clear out the factory needs from last step
 
-        print(f"Step: {self.step}: timing", file=sys.stderr)
+        print(f"Step {self.step}: timing", file=sys.stderr)
         # if self.step == 200:
         #     print('halt')
 
@@ -913,16 +918,16 @@ class Agent():
             self.set_clearing_paths()
             for fid, factory in opp_factories.items():
                 self.opp_strains.append(factory.strain_id)
-            for fid,factory in factories.items():
+            for fid, factory in factories.items():
                 self.my_strains.append(factory.strain_id)
 
         if self.step >= 2:
             self.set_ore_path_costs()
             self.set_clearing_path_costs()
 
+        ice_map, ore_map = self.board["ice"], self.board["ore"]
         for fid, factory in factories.items():
             # Update the factory's resources, these are the resources which the factory should have control over
-            ice_map, ore_map = self.board["ice"], self.board["ore"]
             fact_ice, fact_ore = nearby_resources(factory.pos, ice_map, ore_map, all_factories)
             self.factory_resources[fid] = [fact_ice, fact_ore]
 
@@ -933,23 +938,17 @@ class Agent():
             self.define_factory_needs(factory)
 
         # Unit Actions
-        heavies, lights = self.split_heavies_and_lights(units)
+        heavies, lights, helpers, adjacents = self.split_heavies_and_lights(units)
 
         # first get actions for heavies that were previously mining adjacent
-        for unit in heavies:
-            if unit.unit_id in self.unit_states.keys():
-                state = self.unit_states[unit.unit_id]
-                if state == "mining adjacent":
-                    self.decision_tree(unit, factories, opp_units)
-                    self.mining_adjacent.add(unit.unit_id)
+        for unit in adjacents:
+            self.decision_tree(unit, factories, opp_units)
+            self.mining_adjacent.add(unit.unit_id)
 
         # first get actions for lights that were previously helping
-        for unit in lights:
-            if unit.unit_id in self.unit_states.keys():
-                state = self.unit_states[unit.unit_id]
-                if state == "helping":
-                    self.decision_tree(unit, factories, opp_units)
-                    self.helper_treated.add(unit.unit_id)
+        for unit in helpers:
+            self.decision_tree(unit, factories, opp_units)
+            self.helper_treated.add(unit.unit_id)
 
         # then get actions for heavies that weren't mining adjacent
         for unit in heavies:
@@ -996,4 +995,6 @@ class Agent():
 
         # Finalize the action queue and submit it
         finalized_actions = self.finalize_new_queue()
+        # profiler.disable()
+        # profiler.dump_stats('profile.txt')
         return finalized_actions

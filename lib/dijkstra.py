@@ -1,19 +1,19 @@
-from queue import PriorityQueue
 from typing import List, Tuple
 
+from heapq import heappush, heappop
 
 def dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=0) -> list:
     start = tuple(start)
     finish = tuple(finish)
-    o_facto = [tuple(pos) for pos in opp_factory_tiles]
-    unit_positions = [tuple(pos) for pos in occupied_next]
-    queue = PriorityQueue()
+    o_facto = {tuple(pos) for pos in opp_factory_tiles}
+    unit_positions = {tuple(pos) for pos in occupied_next}
+    queue = []
     visited = set()
     prev = {}
     rubble_map[finish[0]][finish[1]] = 0
-    queue.put((0, start))
-    while not queue.empty():
-        cost, node = queue.get()
+    heappush(queue, (0, start))
+    while queue:
+        cost, node = heappop(queue)
         if node == finish:
             path = []
             while node != start:
@@ -27,17 +27,17 @@ def dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, 
         for neighbor in get_neighbors(node, rubble_map):
             if neighbor in visited or neighbor in o_facto:
                 continue
-            elif queue.qsize() <= 5 and neighbor in unit_positions:
+            elif len(queue) <= 5 and neighbor in unit_positions:
                 continue
             move_cost = 5
-            if queue.qsize() <= 2:
+            if len(queue) <= 2:
                 neighbor_cost = move_cost
             else:
                 rubble_cost = rubble_map[neighbor[0]][neighbor[1]]
                 if rubble_cost < rubble_threshold:
                     rubble_cost = 0
                 neighbor_cost = cost + move_cost + rubble_cost
-            queue.put((neighbor_cost, neighbor))
+            heappush(queue, (neighbor_cost, neighbor))
             prev[neighbor] = node
     return []
 

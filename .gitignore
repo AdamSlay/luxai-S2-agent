@@ -7,3 +7,5 @@ __pycache__
 replay.html
 *.html
 *.json
+profiling.py
+profile.txt

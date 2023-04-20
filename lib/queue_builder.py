@@ -19,7 +19,7 @@ class QueueBuilder:
 
         # TRANSFER
         queue = []
-        max_power = 3000 if self.unit.unit_type == "HEAVY" else 150
+        max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
         transfer_ready, transfer_direction = self.transfer_ready(home_pref=True)
         transfer_queue_cost = 0
         if transfer_ready:
@@ -172,7 +172,7 @@ class QueueBuilder:
         dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
-        max_power = 3000 if self.unit.unit_type == "HEAVY" else 150
+        max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
         power_remaining = self.unit.power
         lichen_amounts = self.board["lichen"]
         position = self.unit.pos
@@ -194,8 +194,12 @@ class QueueBuilder:
         # PATHS AND COSTS
         path_to_lichen = self.get_path_positions(position, lichen_tile)
         cost_to_lichen = self.get_path_cost(path_to_lichen)
-        path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
-        cost_from_lichen = self.get_path_cost(path_from_lichen)
+        if self.agent.step < 930:
+            path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
+            cost_from_lichen = self.get_path_cost(path_from_lichen)
+        else:
+            path_from_lichen = []
+            cost_from_lichen = 0
         total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
 
         # CAN YOU AFFORD IT?
@@ -223,66 +227,67 @@ class QueueBuilder:
         queue.append(self.unit.dig(n=digs))
         dibs[self.unit.unit_id] = [lichen_tile]
 
-        while (power_remaining > 0):
-            dibbed_lists = [pos_list for pos_list in self.agent.lichen_dibs.values()]
-            dibbed_tiles = []
-            for pos_list in dibbed_lists:
-                dibbed_tiles.extend(pos_list)
-            # set position to previous lichen tile
-            position = lichen_tile
-            # find new lichen tile, closest to the previous lichen tile because that's where you will be
-            lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.board)
-            if lichen_tile is None:
-                # if you can't find another lichen tile, break the loop
-                break
-
-            # PATHS AND COSTS
-            path_to_lichen = self.get_path_positions(position, lichen_tile)
-            cost_to_lichen = self.get_path_cost(path_to_lichen)
-            path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
-            cost_from_lichen = self.get_path_cost(path_from_lichen)
-            total_cost = cost_to_lichen + cost_from_lichen + dig_allowance  # reserve power is already accounted for
-
-            if total_cost > power_remaining:
-                # you don't have the power to get to the next lichen tile, so break the loop
-                break
-            else:
-                if len(path_to_lichen) > 1:
-                    queue.extend(self.get_path_moves(path_to_lichen))
-                power_remaining -= cost_to_lichen
-
-                # this is the lichen amount at time of creating queue, it may change by the time you get there
-                tile_amount = lichen_amounts[lichen_tile[0]][lichen_tile[1]]
-
-                # get the number of digs necessary depending on the amount of lichen and the power remaining
-                digs = self.get_number_of_digs(power_remaining, cost_to_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
-
-                # since the lichen amount may change, add extra digs if you can afford it and are a light unit
-                # this will be checked for validity via agent.check_valid_dig at the time of execution
-                if self.unit.unit_type == "LIGHT":
-                    power_after_digs = power_remaining - (digs * dig_cost)
-                    if power_after_digs >= dig_cost * 3:
-                        digs += 3
-                    elif power_after_digs >= dig_cost * 2:
-                        digs += 3
-                    elif power_after_digs >= dig_cost:
-                        digs += 1
-
-                # if you don't have any digs left, break the loop
-                if digs <= 0:
+        if distance_to(self.unit.pos, lichen_tile) <= 10:
+            while power_remaining > 0:
+                dibbed_lists = [pos_list for pos_list in self.agent.lichen_dibs.values()]
+                dibbed_tiles = []
+                for pos_list in dibbed_lists:
+                    dibbed_tiles.extend(pos_list)
+                # set position to previous lichen tile
+                position = lichen_tile
+                # find new lichen tile, closest to the previous lichen tile because that's where you will be
+                lichen_tile = closest_opp_lichen(self.agent.opp_strains, position, dibbed_tiles, self.board)
+                if lichen_tile is None:
+                    # if you can't find another lichen tile, break the loop
                     break
 
-                queue.append(self.unit.dig(n=digs))
+                # PATHS AND COSTS
+                path_to_lichen = self.get_path_positions(position, lichen_tile)
+                cost_to_lichen = self.get_path_cost(path_to_lichen)
+                if self.agent.step < 930:
+                    cost_from_lichen += cost_to_lichen
+                total_cost = cost_to_lichen + cost_from_lichen + dig_allowance  # reserve power is already accounted for
 
-                dig_allowance -= digs * dig_cost
-                power_remaining -= digs * dig_cost
+                if total_cost > power_remaining:
+                    # you don't have the power to get to the next lichen tile, so break the loop
+                    break
+                else:
+                    if len(path_to_lichen) > 1:
+                        queue.extend(self.get_path_moves(path_to_lichen))
+                    power_remaining -= cost_to_lichen
 
-                dibs[self.unit.unit_id].append(lichen_tile)
-                # end of loop
+                    # this is the lichen amount at time of creating queue, it may change by the time you get there
+                    tile_amount = lichen_amounts[lichen_tile[0]][lichen_tile[1]]
 
-        # after breaking out of loop, add path from lichen tile to factory
-        if len(path_from_lichen) > 1:
-            queue.extend(self.get_path_moves(path_from_lichen))
+                    # get the number of digs necessary depending on the amount of lichen and the power remaining
+                    digs = self.get_number_of_digs(power_remaining, cost_to_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
+
+                    # since the lichen amount may change, add extra digs if you can afford it and are a light unit
+                    # this will be checked for validity via agent.check_valid_dig at the time of execution
+                    if self.unit.unit_type == "LIGHT":
+                        power_after_digs = power_remaining - (digs * dig_cost)
+                        if power_after_digs >= dig_cost * 3:
+                            digs += 3
+                        elif power_after_digs >= dig_cost * 2:
+                            digs += 3
+                        elif power_after_digs >= dig_cost:
+                            digs += 1
+
+                    # if you don't have any digs left, break the loop
+                    if digs <= 0:
+                        break
+
+                    queue.append(self.unit.dig(n=digs))
+
+                    dig_allowance -= digs * dig_cost
+                    power_remaining -= digs * dig_cost
+
+                    dibs[self.unit.unit_id].append(lichen_tile)
+                    # end of loop
+
+        # # after breaking out of loop, add path from lichen tile to factory
+        # if len(path_from_lichen) > 1:
+        #     queue.extend(self.get_path_moves(path_from_lichen))
         if len(queue) > 20:
             queue = queue[:20]
         return queue
@@ -318,7 +323,7 @@ class QueueBuilder:
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
         return_tile = closest_factory_tile(target_factory.pos, self.unit.pos, heavies)
         pickup_amt = self.get_pickup_amt(target_factory)
-
+        print(f"Step {self.agent.step}: {self.unit.unit_id} picking up {pickup_amt} from {target_factory.pos}", file=sys.stderr)
         pos = (self.unit.pos[0], self.unit.pos[1])
         occupied_next = self.agent.occupied_next.copy()
         occupied_next.add((target_factory.pos[0], target_factory.pos[1]))
@@ -335,8 +340,10 @@ class QueueBuilder:
         # get path home
         if occupied is not None:
             path_home = self.get_path_positions(self.unit.pos, return_tile, occupied)
+            cost_home = self.get_path_cost(path_home)
         else:
-            path_home = self.get_path_positions(self.unit.pos, return_tile)
+            path_home = self.agent.path_home[self.unit.unit_id]
+            cost_home = self.agent.cost_home[self.unit.unit_id]
 
         # if you're hovering around the factory but can't get to it, just wait
         right_next_to_factory = distance_to(self.unit.pos, target_factory.pos) < 3
@@ -346,7 +353,6 @@ class QueueBuilder:
             return queue
 
         # wait for power if you don't have enough
-        cost_home = self.get_path_cost(path_home)
         if self.unit.power < cost_home:
             if self.agent.unit_states[self.unit.unit_id] == "evasion recharge":
                 print(f"Unit {self.unit.unit_id} is performing evasion recharge and doesn't have enough battery",
@@ -370,8 +376,8 @@ class QueueBuilder:
                 closest_factory = get_closest_factory(self.agent.my_factories, self.unit.pos)
                 if closest_factory.unit_id != target_factory.unit_id:
                     target_factory = closest_factory
-                path_home = self.get_path_positions(self.unit.pos, target_factory.pos)
-                cost_home = self.get_path_cost(path_home)
+                    path_home = self.get_path_positions(self.unit.pos, target_factory.pos)
+                    cost_home = self.get_path_cost(path_home)
                 if self.unit.power < cost_home:
 
                     if in_danger:
@@ -510,19 +516,17 @@ class QueueBuilder:
             queue = [self.unit.move(direction), self.unit.move(0, n=length)]
         return queue
 
-    def build_evasion_dance(self, avoid_positions, opp_unit=None):
+    def build_evasion_dance(self, avoid_positions, cost_home, opp_unit=None):
         self.clear_previous_task()
         self.clear_lichen_dibs()
         reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
 
         # If you barely have enough power to get home, recharge
-        path_home = self.get_path_positions(self.unit.pos, self.target_factory.pos, avoid_positions)
-        cost_home = self.get_path_cost(path_home)
         if self.unit.power < cost_home + reserve_power:
             self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
-            queue = self.build_recharge_queue(avoid_positions, in_danger=True)
+            queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
             if len(queue) == 0:
-                queue = self.build_recharge_queue(self.agent.occupied_next)
+                queue = self.build_recharge_queue()
             return queue
 
         light_vs_heavy = self.unit.unit_type == "LIGHT" and opp_unit.unit_type == "HEAVY"
@@ -553,7 +557,7 @@ class QueueBuilder:
             queue = sequence
         return queue
 
-    def check_need_recharge(self) -> bool:
+    def check_need_recharge(self) -> (bool, list, list):
         reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
 
         closest_charge_tile = closest_factory_tile(self.target_factory.pos, self.unit.pos, self.agent.my_heavy_units)
@@ -561,8 +565,8 @@ class QueueBuilder:
         cost_home = self.get_path_cost(path_home)
 
         if self.unit.power <= cost_home + reserve_power:
-            return True
-        return False
+            return True, path_home, cost_home
+        return False, path_home, cost_home
 
     def optimal_recharge_factory(self):
         reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
@@ -723,8 +727,11 @@ class QueueBuilder:
                 pickup_amt = 3000 - self.unit.power
         return pickup_amt
 
-    def get_path_cost(self, path_positions: list) -> int:
-        if self.unit.unit_type == "HEAVY":
+    def get_path_cost(self, path_positions: list, type=None) -> int:
+        if type is None:
+            type = self.unit.unit_type
+
+        if type == "HEAVY":
             multiplier = 1
             move_cost = 20
         else:

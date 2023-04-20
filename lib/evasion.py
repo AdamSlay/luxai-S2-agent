@@ -51,8 +51,7 @@ def evasion_check(self, unit, target_factory, opp_units, board):
 
     # # if you are out of power, recharge
     q_builder = QueueBuilder(self, unit, target_factory, board)
-    path_home = q_builder.get_path_positions(unit.pos, target_factory.pos, occupied=avoid_positions)
-    cost_home = q_builder.get_path_cost(path_home)
+    cost_home = self.cost_home[unit.unit_id]
 
     # if you're evading, but out of power, reset the queue so that you can recharge
     if unit.power <= cost_home + threshold and self.unit_states[unit.unit_id] == "evading":
@@ -113,7 +112,7 @@ def evasion_check(self, unit, target_factory, opp_units, board):
         if ((next_pos[0], next_pos[1]) in avoid_these_tiles or not_moving) and not on_my_factory:
             # get the first unit in the danger_close_units, this is *probably* the enemy homer
             opp_id, opp_u = next(iter(danger_close_units.items()))
-            queue = q_builder.build_evasion_dance(avoid_positions, opp_unit=opp_u)
+            queue = q_builder.build_evasion_dance(avoid_positions, cost_home, opp_unit=opp_u)
             return queue
         else:
             # you are already moving to a safe tile, so just continue
