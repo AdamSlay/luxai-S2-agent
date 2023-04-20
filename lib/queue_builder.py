@@ -194,22 +194,29 @@ class QueueBuilder:
         if not path_to_lichen:
             lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board)
             if lichen_tile is None:
+                print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking but cant find a lichen tile', file=sys.stderr)
                 return None
             path_to_lichen = self.get_path_positions(position, lichen_tile)
             if not path_to_lichen:
-                # print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant find a path {path_to_lichen}', file=sys.stderr)
+                print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant find a path {path_to_lichen}', file=sys.stderr)
                 return None
 
         cost_from_lichen = 0
         return_path = []
         cost_to_lichen = self.get_path_cost(path_to_lichen)
         if self.agent.step < 930:
+            # first try the target factory
             path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
             if not path_from_lichen:
-                # print(
-                #     f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but no path_from_lichen {path_from_lichen}',
-                #     file=sys.stderr)
-                return None
+                # then just try the closest factory to the lichen tile
+                target_factory = get_closest_factory(self.agent.my_factories, lichen_tile)
+                path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
+                if not path_from_lichen:
+                    # if you still can't find a path, return None
+                    print(
+                        f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but no path_from_lichen {path_from_lichen}',
+                        file=sys.stderr)
+                    return None
             cost_from_lichen = self.get_path_cost(path_from_lichen)
             return_path = path_from_lichen
         total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
@@ -217,9 +224,9 @@ class QueueBuilder:
         # CAN YOU AFFORD IT?
         if total_cost > power_remaining:
             if total_cost > max_power:
-                # print(
-                #     f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but its too expensive: {total_cost}',
-                #     file=sys.stderr)
+                print(
+                    f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but its too expensive: {total_cost}',
+                    file=sys.stderr)
                 return None  # it's not feasible to attack this lichen, return None and go back through decision tree
             return self.build_recharge_queue(factory=target_factory, attacking=True)
 
@@ -232,7 +239,7 @@ class QueueBuilder:
 
         digs = self.get_number_of_digs(power_remaining, cost_to_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
         if digs <= 0:
-            # print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant dig digs: {digs}', file=sys.stderr)
+            print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant dig digs: {digs}', file=sys.stderr)
             # this task is not feasible for this unit at this time
             return None
 
@@ -485,7 +492,7 @@ class QueueBuilder:
         if homer.power < 1000:
             transfer_amt = (self.unit.power + pickup_amt) - 20
             if transfer_amt > 0:
-                transfer_direction = direction_to(self.unit.pos, homer.pos)
+                transfer_direction = direction_to(target_tile, homer.pos)
                 queue.append(self.unit.transfer(transfer_direction, 4, transfer_amt))
         else:
             queue.append(self.unit.move(0))
@@ -810,7 +817,7 @@ class QueueBuilder:
         opp_factory_tiles = list(self.agent.opp_factory_tiles)
         # cheap_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles)
         # return cheap_path
-        fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=30)
+        fast_path = dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, rubble_threshold=20)
         # if fast_path is not None and cheap_path is not None:
         #     fast_cost = self.get_path_cost(fast_path)
         #     cheap_cost = self.get_path_cost(cheap_path)

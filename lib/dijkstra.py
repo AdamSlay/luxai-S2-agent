@@ -27,7 +27,7 @@ def dijkstras_path(rubble_map, start, finish, occupied_next, opp_factory_tiles, 
         for neighbor in get_neighbors(node, rubble_map):
             if neighbor in visited or neighbor in o_facto:
                 continue
-            elif len(queue) <= 5 and neighbor in unit_positions:
+            elif len(queue) <= 3 and neighbor in unit_positions:
                 continue
             move_cost = 5
             if len(queue) <= 2:

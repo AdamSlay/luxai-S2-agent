@@ -24,21 +24,17 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
 
         # These are the weights for the different resources dependent on the total number of factories
         if number_of_factories == 5:
-            ice_weight_profile = [[], [1, 0.1, 0.01, 0.001], [1, 0.1, 0.001, 0.001], [1, 0.2, 0.01, 0.001],
-                                  [1, 0.2, 0.01, 0.001], [1, 0.4, 0.01, 0.001]]
-            ore_weight_profile = [[], [0.1, 0.01, 0.001, 0], [0.4, 0.1, 0.01, 0.001], [0.4, 0.2, 0.1, 0.01],
-                                  [1, 0.4, 0.2, 0.1], [1, 0.1, 0.01, 0.001]]
+            ice_weight_profile = [[], [1, 0, 0, 0], [1, 0, 0, 0], [1, 0.2, 0, 0], [1, 0.2, 0, 0], [1, 0.4, 0, 0]]
+            ore_weight_profile = [[], [0.1, 0, 0, 0], [0.2, 0, 0, 0], [0.4, 0, 0, 0], [1, 0, 0, 0], [1, 0.1, 0, 0]]
         elif number_of_factories == 4:
-            ice_weight_profile = [[], [1, 0.1, 0.01, 0.001], [1, 0.1, 0.01, 0.001], [1, 0.2, 0.01, 0.001],
-                                  [1, 0.4, 0.01, 0.001]]
-            ore_weight_profile = [[], [0.4, 0.01, 0.001, 0], [0.4, 0.2, 0.1, 0.01], [1, 0.4, 0.2, 0.1],
-                                  [1, 0.1, 0.01, 0.001]]
+            ice_weight_profile = [[], [1, 0, 0, 0], [1, 0.1, 0, 0], [1, 0.2, 0, 0], [1, 0.2, 0, 0]]
+            ore_weight_profile = [[], [0.1, 0, 0, 0], [0.4, 0, 0, 0], [1, 0, 0, 0], [1, 0.1, 0, 0]]
         elif number_of_factories == 3:
-            ice_weight_profile = [[], [1, 0.1, 0.01, 0.001], [1, 0.2, 0.01, 0.001], [1, 0.4, 0.01, 0.001]]
-            ore_weight_profile = [[], [0.4, 0.2, 0.1, 0.01], [1, 0.4, 0.2, 0.1], [1, 0.1, 0.01, 0.001]]
+            ice_weight_profile = [[], [1, 0, 0, 0], [1, 0.2, 0, 0], [1, 0.2, 0, 0]]
+            ore_weight_profile = [[], [0.1, 0, 0, 0], [0.4, 0, 0, 0], [1, 0.1, 0, 0]]
         else:
-            ice_weight_profile = [[], [1, 0.1, 0.01, 0.001], [1, 0.4, 0.01, 0.001]]
-            ore_weight_profile = [[], [0.4, 0.2, 0.1, 0.01], [1, 0.1, 0.01, 0.001]]
+            ice_weight_profile = [[], [1, 0.1, 0, 0], [1, 0.2, 0, 0]]
+            ore_weight_profile = [[], [0.4, 0.1, 0, 0], [0.4, 0.1, 0, 0]]
 
         # Is it my turn to place a factory?
         my_turn_to_place = my_turn_to_place_factory(game_state.teams[self.player].place_first, step)
@@ -109,7 +105,7 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
             distance_score = (weighted_ice_dist * ICE_PREFERENCE + weighted_ore_dist)
             inverted_distance_score = np.max(distance_score) - distance_score
             combined_score = inverted_distance_score * obs["board"]["valid_spawns_mask"]
-            overall_score = (low_rubble_scores + adjacency_score_map + combined_score * 7) * obs["board"][
+            overall_score = (low_rubble_scores + adjacency_score_map + combined_score * 6) * obs["board"][
                 "valid_spawns_mask"]
 
             best_loc = np.argmax(overall_score)

@@ -2,6 +2,7 @@
 # import sys
 # from copy import deepcopy
 from math import ceil
+from random import shuffle
 
 from lib.dijkstra import dijkstras_path
 from lib.evasion import evasion_check
@@ -476,43 +477,35 @@ class Agent():
                         excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                         # # if not, then I need to excavate edge of lichen
                         [light_todo.append("rubble") for _ in range(excavators_needed)]
-
+                non_rubble =[]
                 # if I have room to grow lichen, do I have enough water to grow lichen?
                 if factory.cargo.water < 400 and self.step > 150:
-                    ice_miners = number_of_ice if number_of_ice <= 4 else 4
+                    ice_miners = number_of_ice if number_of_ice <= 8 else 8
                     # # if not, then I need to mine ice
-                    [light_todo.append("ice") for _ in range(ice_miners)]
+                    [light_todo.append("ice") for _ in range(2)]
+                    [non_rubble.append("ice") for _ in range(ice_miners - 2)]
 
                 # if enemy is growing lichen nearby, attack it
                 dibbed = list(self.light_mining_dibs.values())
                 dibbed.extend(list(self.heavy_mining_dibs.values()))
                 opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-                if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 20:
-                    [light_todo.append("lichen") for _ in range(4)]
+                if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 30:
+                    [non_rubble.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
                 if factory.cargo.metal < 100 and self.step > 100:
                     ore_miners = number_of_ore if number_of_ore <= 10 else 10
                     # # if not, then I need to mine ore
-                    [light_todo.append("ore") for _ in range(ore_miners)]
-
-            # if I have enough ore to build bots, does someone else need my help?
-            # # if so, then I need to go help them
+                    [light_todo.append("ore") for _ in range(2)]
+                    [non_rubble.append("ore") for _ in range(ore_miners - 2)]
+                # randomize the order of tasks after rubble
+                shuffle(non_rubble)
+                light_todo.extend(non_rubble)
 
             # HEAVIES
             # I always need a homer
             if self.factory_homers[fid] == '':
                 heavy_todo.append("homer")
-
-            # # if it's early in the game, and I'm safe on water, do I have enough ore to build bots?
-            # if self.step < 200 and factory.cargo.water > 100 and number_of_ore > 0:
-            #     # # then I need to mine ore
-            #     heavy_todo.append("ore")
-
-            # # do I have enough water to grow lichen?
-            # if factory.cargo.water < 2000 and number_of_ice > 0:
-            #     # # if not, then I need to mine ice
-            #     heavy_todo.append("ice")
 
             if self.step > 100:
                 cost_to_clearing = self.clearing_path_costs[fid]
@@ -589,8 +582,13 @@ class Agent():
 
     def factory_watering(self, factory, game_state):
         # WATER
+        homer_id = self.factory_homers[factory.unit_id]
+        if homer_id != '':
+            homer_state = self.unit_states[homer_id]
+        else:
+            homer_state = None
         if factory.cargo.water > 50 and game_state.real_env_steps <= 100:
-            if factory.cargo.water >= 120:
+            if homer_state and homer_state == "mining adjacent":
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
@@ -601,16 +599,19 @@ class Agent():
         if factory.cargo.water > 50 and 100 < game_state.real_env_steps < 750:
             power = factory.power
             if power > 5000:
-                return
-            if factory.cargo.water > 200:
+                if game_state.real_env_steps % 3 != 0:
+                    queue = factory.water()
+                    self.update_queues(factory, queue)
+                    return
+            elif homer_id and homer_state == "mining adjacent" and self.step % 8 != 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            if factory.cargo.water > 100 and game_state.real_env_steps % 3 != 0:
+            elif factory.cargo.water > 150 and game_state.real_env_steps % 3 != 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            if factory.cargo.water > 50 and game_state.real_env_steps % 2 == 0:
+            elif factory.cargo.water > 50 and game_state.real_env_steps % 2 == 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return

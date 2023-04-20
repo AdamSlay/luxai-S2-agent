@@ -290,7 +290,7 @@ def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, board, 
         lichen_tiles = {tile: lichen_tiles[tile] for tile in group}
 
     if priority:
-        priority_strain = find_most_common_integer(lichen_tiles, opp_strains)
+        priority_strain = find_most_common_integer(lichen_tiles, opp_strains, strain_amount=15)
         tile_locations = np.argwhere((np.isin(lichen_tiles, priority_strain) & (lichen_amounts > tile_amount)))
     else:
         tile_locations = np.argwhere((np.isin(lichen_tiles, opp_strains) & (lichen_amounts > tile_amount)))
@@ -303,7 +303,7 @@ def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, board, 
     return np.array(target_tile)
 
 
-def find_most_common_integer(lichen_strain_map, opp_strains):
+def find_most_common_integer(lichen_strain_map, opp_strains, strain_amount=0):
     all_strains, counts = np.unique(lichen_strain_map, return_counts=True)
 
     # Filter the unique_elements and counts arrays based on integers_of_interest
@@ -313,10 +313,11 @@ def find_most_common_integer(lichen_strain_map, opp_strains):
     if len(filtered_elements) == 0:
         return None
 
-    # Find the index of the highest count among the integers of interest
-    most_common_index = np.argmax(filtered_counts)
-    most_common_integer = filtered_elements[most_common_index]
-    return most_common_integer
+    # Find the indices of strains with counts greater than or equal to x
+    indices_above_x = np.where(filtered_counts >= strain_amount)
+    # Get the strains with counts greater than or equal to x
+    strains_above_x = filtered_elements[indices_above_x]
+    return strains_above_x.tolist()
 
 
 def get_lichen_in_square(lichen_tiles, player_strains, pos, size):
