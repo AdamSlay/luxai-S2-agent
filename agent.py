@@ -68,6 +68,8 @@ class Agent():
         self.unit_states = dict()  # uid: "state"
         self.factory_types = dict()  # fid: "type"
         self.factory_states = dict()  # fid: "state"
+        self.factory_low_charge_heavy = dict()  # fid: bool
+        self.factory_low_charge_light = dict()  # fid: bool
 
         # Tasks
         self.factory_needs_light = dict()  # fid: [ice, ore]  --> what I need
@@ -103,6 +105,25 @@ class Agent():
             self.my_factory_centers.add((x, y))
 
         return queue
+
+    def set_factory_charge_level(self):
+        for fid, factory in self.my_factories.items():
+            # SETUP
+            if fid not in self.factory_low_charge_light.keys():
+                self.factory_low_charge_light[fid] = False
+            if fid not in self.factory_low_charge_heavy.keys():
+                self.factory_low_charge_heavy[fid] = False
+
+            # LIGHT
+            if factory.power < 400 and self.factory_low_charge_light[fid] is False:
+                self.factory_low_charge_light[fid] = True
+            elif factory.power >= 500 and self.factory_low_charge_light[fid] is True:
+                self.factory_low_charge_light[fid] = False
+            # HEAVY
+            if factory.power < 600 and self.factory_low_charge_heavy[fid] is False:
+                self.factory_low_charge_heavy[fid] = True
+            elif factory.power >= 800 and self.factory_low_charge_heavy[fid] is True:
+                self.factory_low_charge_heavy[fid] = False
 
     def set_ore_paths(self):
         rubble_map = np.copy(self.board['rubble'])
@@ -287,6 +308,14 @@ class Agent():
                     q_builder = QueueBuilder(self, unit, [], self.board)
                     q_builder.clear_mining_dibs()
                     q_builder.clear_lichen_dibs()
+                    # clear previous task without knowing the factory
+                    for fid, units in self.factory_tasks_light.items():
+                        if unit.unit_id in units.keys():
+                            del self.factory_tasks_light[fid][unit.unit_id]
+                    for fid, units in self.factory_tasks_heavy.items():
+                        if unit.unit_id in units.keys():
+                            del self.factory_tasks_heavy[fid][unit.unit_id]
+
                     self.action_queue[unit.unit_id] = []
 
     def add_nextpos_to_occnext(self, unit):
@@ -453,7 +482,7 @@ class Agent():
                     if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
                         light_todo.append(f"helper:{uid}")
 
-                max_excavators = 5
+                max_excavators = 8
                 cost_to_ore = self.ore_path_costs[fid]
                 if cost_to_ore > 0:
                     excavators_needed = ceil(cost_to_ore / 20)
@@ -478,7 +507,7 @@ class Agent():
                             # if not, then I need to excavate a clearing path
                             [light_todo.append("clearing path") for _ in range(excavators_needed)]
                         else:
-                            excavators_needed = ceil((free_spaces_wanted - free_spaces_actual) / 2)
+                            excavators_needed = ceil(free_spaces_wanted - free_spaces_actual)
                             excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                             # if not, then I need to excavate edge of lichen
                             [light_todo.append("rubble") for _ in range(excavators_needed)]
@@ -686,9 +715,9 @@ class Agent():
 
     def rubble_digging_task_assignment(self, q_builder, resource, task_factory, light=False):
         off_limits = self.my_factory_tiles
-        dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
+        dibbed_tiles = [(pos[0], pos[1]) for pos in self.heavy_mining_dibs.values()]
         if light:
-            light_dibbed_tiles = [pos for pos in self.light_mining_dibs.values()]
+            light_dibbed_tiles = [(pos[0], pos[1]) for pos in self.light_mining_dibs.values()]
             dibbed_tiles.extend(light_dibbed_tiles)
 
         primary_zone = get_orthogonal_positions(task_factory.pos, 1, off_limits, self.board)
@@ -741,7 +770,7 @@ class Agent():
         number_of_factories = len(self.my_factories)
         need_heavies = number_of_heavies < number_of_factories * 1.5
         enough_water = task_factory.cargo.water >= 100
-        closest_ore = closest_resource_tile('ore', task_factory.pos, list(self.heavy_mining_dibs.values()), self.board)
+        closest_ore = closest_resource_tile('ore', task_factory.pos, [], self.board)
         if self.step < 400 and need_heavies and enough_water and distance_to(task_factory.pos, closest_ore) < 13:
             return q_builder.build_mining_queue("ore")
         else:
@@ -764,6 +793,9 @@ class Agent():
         # if you can't, then you'll naturally recurse to the next task
         if unit.unit_id in self.factory_homers.values():
             _task = "homer"
+
+        # if unit.unit_id in self.homer_helpers.keys():
+        #     _task = "helper"
 
         elif unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
             _task = "lichen"
@@ -798,7 +830,7 @@ class Agent():
                     if not new_factory_needs:
                         print(f"Step {self.step}: {unit.unit_id} has no tasks to do after failing to find lichen",
                               file=sys.stderr)
-                        queue = q_builder.build_waiting_queue(length=1)
+                        queue = q_builder.build_waiting_queue(length=28)
                         return queue
 
                 # if the factory in need has less than 3 workers, do the first task available
@@ -813,13 +845,13 @@ class Agent():
 
             else:
                 # if there are no factories in need, wait
-                queue = q_builder.build_waiting_queue(length=1)
+                queue = q_builder.build_waiting_queue(length=28)
                 return queue
 
         homer = ["homer"]
+        helping = ["helper"]
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
-        helping = ["helper"]
         attacking = ["lichen", "aggro"]
         first_task_word = _task.split(":")[0]
 
@@ -857,7 +889,7 @@ class Agent():
             queue = q_builder.build_helper_queue(homer)
             if queue is None:
                 queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
-            self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
+            self.last_state[unit.unit_id] = "helping"
             return queue
 
         # Attacking tasks
@@ -867,6 +899,7 @@ class Agent():
         if lichen_tile is not None and distance_to(lichen_tile, task_factory.pos) <= 30:
             queue = q_builder.build_attack_queue(lichen_tile)
             if queue is None:
+                # TODO: aggro queue for heavies
                 queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False)
 
             self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
@@ -939,8 +972,11 @@ class Agent():
         if closest_factory.cargo.water < 50 and transferable and not_already_transfering and not need_recharge and ice_cargo > 50:
             state = "transferring"
             q_builder = QueueBuilder(self, unit, closest_factory, self.board)
-            q_builder.clear_mining_dibs()
+            not_a_homer = unit.unit_id not in self.factory_homers.values()
+            if not_a_homer:
+                q_builder.clear_mining_dibs()
             q_builder.clear_lichen_dibs()
+            q_builder.clear_previous_task()
             queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=True)
             print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}", file=sys.stderr)
             self.remove_task_from_factory(unit)
@@ -958,28 +994,35 @@ class Agent():
         else:  # if you don't need to recharge
 
             # if you don't have a queue, build one
-            if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting" or state == "solar panel":
+            if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting" or state == "solar panel" or state == "slow charging":
                 queue = self.mining_decision(task_factory, q_builder, light=is_light)  # try to get a new queue
 
                 # if you were waiting before and you're waiting now, and you have a queue, just keep waiting
                 was_waiting = state == "waiting"  # was waiting to start the step
                 is_waiting = self.unit_states[unit.unit_id] == "waiting"  # still waiting after decision tree
+
                 was_solar_panel = state == "solar panel"
                 is_solar_panel = self.unit_states[unit.unit_id] == "solar panel"
+
+                was_slow_charging = state == "slow charging"
+                is_slow_charging = self.unit_states[unit.unit_id] == "slow charging"
+
                 has_a_queue = len(self.action_queue[unit.unit_id]) > 0 and self.action_queue[unit.unit_id] != []
                 still_waiting = was_waiting and is_waiting and has_a_queue
                 still_solar_panel = was_solar_panel and is_solar_panel and has_a_queue
-                if still_waiting or still_solar_panel:
-                    # you were already waiting/solar and nothing new came up
-                    # so just continue waiting/solr and add your next pos to occupied_next
+                still_slow_charging = was_slow_charging and is_slow_charging and has_a_queue
+                if still_waiting or still_solar_panel or still_slow_charging:
+                    # you were already waiting/solar/slow and nothing new came up
+                    # so just continue waiting/solar/slow and add your next pos to occupied_next
                     # update the local action queue, but don't update the new_queue
                     self.add_nextpos_to_occnext(unit)
                     return
 
                 if queue is None:
                     # Got through the whole decision tree and couldn't find a queue
-                    queue = q_builder.build_waiting_queue()
+                    queue = q_builder.build_waiting_queue(length=6)
                     if queue is None:
+                        print(f"Step {self.step}: {unit.unit_id} couldn't find a queue, doing NONE, state: {state}", file=sys.stderr)
                         return
 
                 # update the action queue, this adds new_pos to occupied_next
@@ -1012,6 +1055,7 @@ class Agent():
         self.clear_dead_units_from_memory()  # Clear out the dead units from the mining dibs
         self.mining_adjacent = set()  # Clear out the mining adjacent set
         self.helper_treated = set()  # Clear out the helper treated set
+        self.set_factory_charge_level()  # Set the charge level of each factory
 
         # Factory updates
         self.factory_types = dict()  # Clear out the factory types from last step

@@ -46,11 +46,17 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
             # If there are no resources left, don't mask anything
             ice_masked = mask_resource_near_factories(ice, factory_centers)
             total_ice_tiles = np.sum(ice_masked)
-            if total_ice_tiles > 1:
+            if total_ice_tiles >= 1:
                 ice = ice_masked
+            else:
+                ice_masked = mask_resource_near_factories(ice, factory_centers, n=1)
+                total_ice_tiles = np.sum(ice_masked)
+                if total_ice_tiles >= 1:
+                    ice = ice_masked
+
             ore_masked = mask_resource_near_factories(ore, factory_centers)
-            total_ice_tiles = np.sum(ice_masked)
-            if total_ice_tiles > 1:
+            total_ore_tiles = np.sum(ice_masked)
+            if total_ore_tiles > 1:
                 ore = ore_masked
 
             # Find adjacency scores for each tile

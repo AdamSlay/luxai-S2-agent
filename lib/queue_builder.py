@@ -19,6 +19,7 @@ class QueueBuilder:
 
         # TRANSFER
         queue = []
+        not_a_homer = self.unit.unit_id not in self.agent.factory_homers.values()
         max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
         transfer_ready, transfer_direction, start_postition = self.transfer_ready(home_pref=True)
         transfer_queue_cost = 0
@@ -56,7 +57,7 @@ class QueueBuilder:
             if target_factory is None:
                 target_factory = self.target_factory
         else:
-            if self.unit.unit_type == "HEAVY":
+            if self.unit.unit_type == "HEAVY" and not_a_homer:
                 # if you're a heavy, don't swipe a mining tile form another heavy just because you have a lower uid than them
                 heavy_tiles = [u.pos for u in self.agent.my_heavy_units if u.unit_id != self.unit.unit_id]
                 dibs_tiles.extend(heavy_tiles)
@@ -65,8 +66,9 @@ class QueueBuilder:
 
         if resource_tile is None:
             # can't find a resource, return None and get back into the decision tree
+            if not not_a_homer:
+                print(f"Step {self.agent.step}: {self.unit.unit_id} can't find a resource tile, but is a homer, dibs{dibs}", file=sys.stderr)
             return None
-        dibs[self.unit.unit_id] = resource_tile
 
         # Check if mining adjacent
         mining_adjacent = False
@@ -106,25 +108,14 @@ class QueueBuilder:
         dig_rate = 20 if self.unit.unit_type == "HEAVY" else 2
         dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
 
-        if resource == "ice" and target_factory.cargo.water < 150 and self.unit.unit_type == "HEAVY":
-            dig_allowance = 300
-
         if mining_adjacent:
-            dig_allowance = 300
+            dig_allowance = 0  # only stop digging if you have less than reserve power
 
         if rubble_tile is not None:
             # if you are mining rubble, you just need enough power to clear the tile (at a minimum)
             # but if the tile has a ton of rubble, just use the regular dig allowance
             rubble_dig_allowance = ((tile_amount // dig_rate) + 1) * dig_cost
             dig_allowance = rubble_dig_allowance if rubble_dig_allowance < dig_allowance else dig_allowance
-
-        # TODO: if you are attacking lichen, make a queue that specifies all the lichen tiles you want to attack
-        # ^^^ it should probably be it's own func,
-        # but it's a little tricky because you need to know how much power you have left after each lichen tile
-        # while loop? while power > 0: queue.append(attack lichen), power -= cost, break if power < cost
-        if lichen_tile is not None:
-            dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
-            dig_allowance = 400 if self.unit.unit_type == "HEAVY" else 50
 
         if self.unit.power < pathing_cost + dig_allowance:
             if pathing_cost + dig_allowance > max_power:
@@ -134,7 +125,10 @@ class QueueBuilder:
             return self.build_recharge_queue(factory=target_factory, attacking=is_attacking)
 
         if len(path_to_resource) > 1:
-            moves_to_resource = self.get_path_moves(path_to_resource)
+            if resource != "ice" and resource != "ore":
+                moves_to_resource = self.get_path_moves(path_to_resource, pauses=2)
+            else:
+                moves_to_resource = self.get_path_moves(path_to_resource)
             queue.extend(moves_to_resource)
 
         # DIGS
@@ -154,6 +148,7 @@ class QueueBuilder:
 
         queue.append(self.unit.dig(n=digs))
 
+        dibs[self.unit.unit_id] = resource_tile
         factory_tasks_weight_class[target_factory.unit_id][self.unit.unit_id] = resource
 
         if len(queue) > 20:
@@ -225,7 +220,8 @@ class QueueBuilder:
             if not path_from_lichen:
                 # then just try the closest factory to the lichen tile
                 target_factory = get_closest_factory(self.agent.my_factories, lichen_tile)
-                path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
+                # you don't need to care about occupied_next for the return path, because you arent actually going to use it
+                path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos, occupied=self.agent.opp_factory_tiles)
                 if not path_from_lichen:
                     # if you still can't find a path, return None
                     print(
@@ -289,10 +285,11 @@ class QueueBuilder:
                     path_home_tile = np.array(path_home_tile)
                     path_from_lichen = return_path[return_path_tile_index:]
                     path_from_lichen.reverse()
-                    path_from_lichen.extend(self.get_path_positions(path_home_tile, lichen_tile))
+                    # you don't need to care about occupied_next for the return path, because you arent' actually going to use it
+                    path_from_lichen.extend(self.get_path_positions(path_home_tile, lichen_tile, occupied=self.agent.opp_factory_tiles))
                 else:
                     # print(f"Step {self.agent.step}: {self.unit.unit_id} path_home_tile is None {return_path}, lichen_tile: {lichen_tile}")
-                    path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
+                    path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos, occupied=self.agent.opp_factory_tiles)
                 cost_from_lichen = self.get_path_cost(path_from_lichen)
             total_cost = cost_to_lichen + cost_from_lichen + dig_allowance  # reserve power is already accounted for
 
@@ -360,17 +357,24 @@ class QueueBuilder:
     def build_recharge_queue(self, occupied=None, factory=None, slow_charge=False, attacking=False,
                              in_danger=False) -> list:
         # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
-        self.agent.unit_states[self.unit.unit_id] = "recharging"
-        self.clear_mining_dibs()
-        self.clear_lichen_dibs()
-        self.clear_previous_task()
         target_factory = self.target_factory
         if factory is not None:
             target_factory = factory
 
-        factory_low = target_factory.power < 200 if self.unit.unit_type == "LIGHT" else target_factory.power < 400
-        not_a_homer = self.unit.unit_id not in self.agent.factory_homers.values()
-        if factory_low and not_a_homer and not in_danger:
+        factory_low = self.agent.factory_low_charge_light[target_factory.unit_id] if self.unit.unit_type == "LIGHT" \
+            else self.agent.factory_low_charge_heavy[target_factory.unit_id]
+
+        a_homer = self.unit.unit_id in self.agent.factory_homers.values()
+        a_helper = self.unit.unit_id in self.agent.last_state.keys() and \
+                       self.agent.last_state[self.unit.unit_id] == "helping"
+
+        self.agent.unit_states[self.unit.unit_id] = "recharging"
+        if not a_homer:
+            self.clear_mining_dibs()
+        self.clear_lichen_dibs()
+        self.clear_previous_task()
+
+        if factory_low and not a_homer and not a_helper and not in_danger:
             if self.unit.unit_type == "HEAVY":
                 queue = self.solar_panel_queue(target_factory)
                 if queue is not None:
@@ -381,7 +385,7 @@ class QueueBuilder:
         queue = []
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
         return_tile = closest_factory_tile(target_factory.pos, self.unit.pos, heavies)
-        pickup_amt = self.get_pickup_amt(target_factory)
+        pickup_amt = self.get_pickup_amt(target_factory, homer=a_homer, helper=a_helper)
         pos = (self.unit.pos[0], self.unit.pos[1])
         occupied_next = self.agent.occupied_next.copy()
         occupied_next.add((target_factory.pos[0], target_factory.pos[1]))
@@ -461,16 +465,21 @@ class QueueBuilder:
             queue.extend(moves)
 
         # pick up power once you get home
-        if pickup_amt > target_factory.power - 50 or target_factory.power < 300:
+        if (pickup_amt > target_factory.power - 50 or factory_low) and not a_homer and not a_helper:
             if attacking:
                 queue = self.build_waiting_queue(length=10)
                 return queue
             slow_charge = True
 
         if slow_charge:
+            self.agent.unit_states[self.unit.unit_id] = "slow charging"
             pickup_amt = pickup_amt // 10
             if pickup_amt > 0:
-                queue.append(self.unit.pickup(4, pickup_amt, n=10))
+                sequence = [self.unit.pickup(4, pickup_amt), self.unit.move(0)]
+                [queue.extend(sequence) for _ in range(10)]
+            else:
+                queue = self.build_waiting_queue(length=10)
+                return queue
 
         else:
             queue.append(self.unit.pickup(4, pickup_amt))
@@ -511,7 +520,7 @@ class QueueBuilder:
 
         pickup_amt = 0
         if self.unit.power < 140:
-            pickup_amt = self.get_pickup_amt(self.target_factory)
+            pickup_amt = self.get_pickup_amt(self.target_factory, homer=False, helper=True)
             queue.append(self.unit.pickup(4, pickup_amt))
 
         if homer.power < 1000:
@@ -537,11 +546,13 @@ class QueueBuilder:
         queue = []
         if self.unit.unit_type == "HEAVY":
             solar_charge = 10
+            queue_cost = 11
         else:
             solar_charge = 1
+            queue_cost = 2
 
         step = self.agent.step
-        power_required = desired_power
+        power_required = desired_power + queue_cost
         waits = 0
         while power_required >= 0:
             queue.append(self.unit.move(0))
@@ -556,7 +567,7 @@ class QueueBuilder:
 
         # add an extra move to make sure you don't get stuck
         queue.append(self.unit.move(0))
-        queue = truncate_actions(queue)
+        queue = truncate_actions(queue, self.unit)
         return queue
 
     def solar_panel_queue(self, factory):
@@ -597,7 +608,8 @@ class QueueBuilder:
         if not on_tile(self.unit.pos, closest_tile):
             positions_to_target = self.get_path_positions(self.unit.pos, closest_tile)
             if not positions_to_target:
-                print(f"Step {self.agent.step}: {self.unit.unit_id} is stuck in solar panel queue. no path to target", file=sys.stderr)
+                print(f"Step {self.agent.step}: {self.unit.unit_id} is stuck in solar panel queue. no path to target",
+                      file=sys.stderr)
                 return None
             cost_to_target = self.get_path_cost(positions_to_target)
             if cost_to_target > self.unit.power:
@@ -605,7 +617,8 @@ class QueueBuilder:
             moves_to_target = self.get_path_moves(positions_to_target)
             queue.extend(moves_to_target)
         elif on_tile(self.unit.pos, closest_tile) and (self.unit.pos[0], self.unit.pos[1]) in self.agent.occupied_next:
-            print(f"Step {self.agent.step}: {self.unit.unit_id} is stuck in solar panel queue. on target but occupied",file=sys.stderr)
+            print(f"Step {self.agent.step}: {self.unit.unit_id} is stuck in solar panel queue. on target but occupied",
+                  file=sys.stderr)
             direction = move_toward(self.unit.pos, closest_tile, self.agent.occupied_next)
             queue.append(self.unit.move(direction))
             return queue
@@ -778,7 +791,9 @@ class QueueBuilder:
         if isinstance(transfer_direction, list):  # if transfer_direction is a path
             queue.extend(self.get_path_moves(transfer_direction))
             cost = self.get_path_cost(transfer_direction)
-            transfer_direction = queue[-1][1]  # direction of the last move along the path to the factory
+            # direction from last position in path to its closest factory tile
+            target_factory_tile = closest_factory_tile(target_factory.pos, transfer_direction[-1], [])
+            transfer_direction = direction_to(transfer_direction[-1], target_factory_tile)
         if self.unit.unit_type == "LIGHT":
             if self.unit.cargo.ice > 0:
                 queue.append(self.unit.transfer(transfer_direction, 0, self.unit.cargo.ice))
@@ -843,31 +858,48 @@ class QueueBuilder:
                 number_of_digs = ex_digs
         return number_of_digs
 
-    def get_pickup_amt(self, charge_factory) -> int:
+    def get_pickup_amt(self, charge_factory, homer=False, helper=False) -> int:
         if self.unit.unit_type == "LIGHT":
-            if charge_factory.power > 150:
-                pickup_amt = 150 - self.unit.power
-            else:
-                if 150 - self.unit.power > charge_factory.power - 50:
-                    if charge_factory.power - 50 > 0:
-                        pickup_amt = charge_factory.power - 50
-                    else:
-                        pickup_amt = 0
-                else:
+            if helper:
+                if charge_factory.power > 150:
                     pickup_amt = 150 - self.unit.power
-            if pickup_amt < 0:
-                pickup_amt = 0
-        else:
-            if charge_factory.power <= 500:
-                pickup_amt = charge_factory.power - 50
-            elif charge_factory.power <= 1000:
-                pickup_amt = charge_factory.power - 200
-            elif charge_factory.power <= 2500:
-                pickup_amt = charge_factory.power - 500
-            elif charge_factory.power <= 3500:
-                pickup_amt = charge_factory.power - 1000
+                else:
+                    if 150 - self.unit.power > charge_factory.power - 50:
+                        if charge_factory.power - 50 > 0:
+                            pickup_amt = charge_factory.power - 50
+                        else:
+                            pickup_amt = 0
+                    else:
+                        pickup_amt = 150 - self.unit.power
+                if pickup_amt < 0:
+                    pickup_amt = 0
             else:
-                pickup_amt = 3000 - self.unit.power
+                power_wanted = 150 - self.unit.power
+                available_power = charge_factory.power - 200
+                if available_power > power_wanted:
+                    pickup_amt = power_wanted
+                else:
+                    pickup_amt = available_power
+
+        else:  # it's a heavy
+            if homer:
+                if charge_factory.power <= 500:
+                    pickup_amt = charge_factory.power - 50
+                elif charge_factory.power <= 1000:
+                    pickup_amt = charge_factory.power - 200
+                elif charge_factory.power <= 2500:
+                    pickup_amt = charge_factory.power - 500
+                elif charge_factory.power <= 3500:
+                    pickup_amt = charge_factory.power - 1000
+                else:
+                    pickup_amt = 3000 - self.unit.power
+            else:
+                power_wanted = 3000 - self.unit.power
+                available_power = charge_factory.power - 600
+                if available_power > power_wanted:
+                    pickup_amt = power_wanted
+                else:
+                    pickup_amt = available_power
         # print(f"Step {self.agent.step}: {self.unit.unit_id} is picking up {pickup_amt} from {charge_factory.unit_id}", file=sys.stderr)
         return pickup_amt
 
@@ -891,10 +923,51 @@ class QueueBuilder:
             total_cost += (rubble_cost + move_cost)
         return total_cost + queue_cost
 
+    def get_occupied_next_for_group(self, group):
+        occupied_next = set()
+        for tile in self.agent.opp_factory_tiles:
+            occupied_next.add((tile[0], tile[1]))
+        # opp_factory_tiles = [get_factory_tiles(f.pos) for i, f in self.agent.opp_factories.items()]
+        # for tiles in opp_factory_tiles:
+        #     for tile in tiles:
+        #         occupied_next.add((tile[0], tile[1]))
+
+        for uid, u in group.items():
+            if u.unit_id in self.agent.action_queue.keys():
+                queue = self.agent.action_queue[u.unit_id]
+                # if you have an action queue, check the next position
+                if isinstance(queue, list) and len(queue) > 0:
+                    # if you're moving, next_pos is the next position
+                    if queue[0][0] == 0:
+                        next_pos = next_position(u.pos, queue[0][1])
+                        new_pos = (next_pos[0], next_pos[1])
+                    # otherwise, next_pos is the current position
+                    else:
+                        new_pos = (u.pos[0], u.pos[1])
+                    # add new_pos to occupied_next
+                    occupied_next.add(new_pos)
+                # if you don't have an action queue, add the current position to occupied_next
+                else:
+                    pos = (u.pos[0], u.pos[1])
+                    occupied_next.add(pos)
+        return occupied_next
+
     def get_path_positions(self, start: np.ndarray, finish: np.ndarray, recharging=False, occupied=None) -> list:
         rubble_map = np.copy(self.board["rubble"])
         if occupied is None:
-            occupied_next = list(self.agent.occupied_next)
+            if self.unit.unit_type == "HEAVY":
+                units = self.agent.my_units
+                unit_id = self.unit.unit_id
+                factory_homers = self.agent.factory_homers
+                homer = unit_id in factory_homers.values()
+                if homer:
+                    heavies = {uid: u for uid, u in units.items() if uid in factory_homers.values() and uid != unit_id}
+                else:
+                    heavies = {uid: u for uid, u in units.items() if uid != unit_id and u.unit_type == "HEAVY"}
+                occupied_next = list(self.get_occupied_next_for_group(heavies))
+
+            else:
+                occupied_next = list(self.agent.occupied_next)
         else:
             occupied_next = list(occupied)
 
@@ -919,11 +992,11 @@ class QueueBuilder:
         #     return cheap_path
         return fast_path
 
-    def get_path_moves(self, path_positions: list) -> list:
+    def get_path_moves(self, path_positions: list, pauses=None) -> list:
         moves = []
         for i, pos in enumerate(path_positions):
             if i < len(path_positions) - 1:
                 direction = direction_to(pos, path_positions[i + 1])
                 moves.append(self.unit.move(direction))
-        trunc_moves = truncate_actions(moves)
+        trunc_moves = truncate_actions(moves, self.unit, pauses=pauses)
         return trunc_moves

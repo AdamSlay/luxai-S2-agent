@@ -67,7 +67,7 @@ def get_position_with_lowest_rubble(positions_to_clear, off_limits, board, facto
     if len(rubble_values_raw) == 0:
         return None
     min_rubble_index = np.argmin(rubble_values_raw)
-    return positions_to_clear[min_rubble_index]
+    return filtered_positions_to_clear[min_rubble_index]
 
 
 def get_orthogonal_positions(center, n, off_limits, board):

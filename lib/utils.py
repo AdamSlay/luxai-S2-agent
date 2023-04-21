@@ -413,7 +413,7 @@ def move_toward(position: np.ndarray, target: np.ndarray, off_limits: list, desi
     return direction
 
 
-def truncate_actions(actions):
+def truncate_actions(actions, unit, pauses=None):
     truncated = []
     count = 1
 
@@ -424,6 +424,8 @@ def truncate_actions(actions):
             new_action = actions[i - 1].copy()
             new_action[-1] = count
             truncated.append(new_action)
+            if pauses is not None:
+                truncated.append(unit.move(0, n=pauses))
             count = 1
 
     # Append the last action
