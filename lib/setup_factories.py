@@ -1,4 +1,3 @@
-from copy import deepcopy
 from math import floor
 import sys
 
@@ -105,7 +104,7 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
             distance_score = (weighted_ice_dist * ICE_PREFERENCE + weighted_ore_dist)
             inverted_distance_score = np.max(distance_score) - distance_score
             combined_score = inverted_distance_score * obs["board"]["valid_spawns_mask"]
-            overall_score = (low_rubble_scores + adjacency_score_map + combined_score * 6) * obs["board"][
+            overall_score = (low_rubble_scores + adjacency_score_map + combined_score * 4) * obs["board"][
                 "valid_spawns_mask"]
 
             best_loc = np.argmax(overall_score)

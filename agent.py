@@ -329,7 +329,16 @@ class Agent():
                 if old_pos in self.occupied_next:
                     self.occupied_next.remove(old_pos)
 
-    def update_queues(self, unit, queue):
+    def remove_task_from_factory(self, unit):
+        unit_id = unit.unit_id
+        for fid, units in self.factory_tasks_light.items():
+            if unit_id in units.keys():
+                del self.factory_tasks_light[fid][unit_id]
+        for fid, units in self.factory_tasks_heavy.items():
+            if unit_id in units.keys():
+                del self.factory_tasks_heavy[fid][unit_id]
+
+    def update_queues(self, unit, queue, new_queue=True):
         # first remove the old next position from occupied_next if it exists
         self.remove_old_next_pos_from_occ_next(unit)
 
@@ -345,7 +354,8 @@ class Agent():
             new_pos = (unit.pos[0], unit.pos[1])
             self.occupied_next.add(new_pos)
         self.action_queue[unit.unit_id] = queue
-        self.new_queue[unit.unit_id] = queue
+        if new_queue:
+            self.new_queue[unit.unit_id] = queue
 
     def finalize_new_queue(self):
         actions_to_submit = dict()
@@ -512,12 +522,15 @@ class Agent():
                 if cost_to_clearing > 0:
                     heavy_todo.append("clearing path")
 
+            if number_of_ice > 1:
+                heavy_todo.append("ice")
+
             # are you dangerously low on water?
-            if factory.cargo.water < 150 and number_of_ice > 1:
+            if factory.cargo.water < 150 and number_of_ice > 2:
                 emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 2 else 2
                 [heavy_todo.append("ice") for _ in range(emergency_ice_miners)]
 
-            if len(self.my_heavy_units) < len(self.my_factories) * 2:
+            if len(self.my_heavy_units) < len(self.my_factories) * 2 and factory.cargo.ore < 200:
                 # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
@@ -529,12 +542,6 @@ class Agent():
                     # if so, then I need to attack
                     # [heavy_todo.append("lichen") for _ in range(2)]
                     heavy_todo.append("lichen")
-
-            # if I don't need to excavate, do I have enough ore to build bots?
-            if factory.cargo.metal < 100 and number_of_ore > 0 and self.step < 750 and len(self.my_heavy_units) >= len(
-                    self.my_factories) * 2:
-                # # if not, then I need to mine ore
-                heavy_todo.append("ore")
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
             surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains,
@@ -599,7 +606,7 @@ class Agent():
         if factory.cargo.water > 50 and 100 < game_state.real_env_steps < 750:
             power = factory.power
             if power > 5000:
-                if game_state.real_env_steps % 3 != 0:
+                if game_state.real_env_steps % 4 == 0:
                     queue = factory.water()
                     self.update_queues(factory, queue)
                     return
@@ -621,11 +628,11 @@ class Agent():
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            if factory.cargo.water > 400:
+            elif factory.cargo.water > 400:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            if factory.cargo.water > 200 and game_state.real_env_steps % 3 != 0:
+            elif factory.cargo.water > 200 and game_state.real_env_steps % 3 != 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
@@ -729,12 +736,13 @@ class Agent():
             queue = q_builder.build_mining_queue("clearing path", rubble_tile=closest_path_pos)
             return queue
 
-    def homer_task_assignment(self, q_builder, _task, task_factory, light=False):
+    def homer_task_assignment(self, q_builder, _task, task_factory):
         number_of_heavies = len(self.my_heavy_units)
         number_of_factories = len(self.my_factories)
         need_heavies = number_of_heavies < number_of_factories * 1.5
         enough_water = task_factory.cargo.water >= 100
-        if self.step < 400 and need_heavies and enough_water:
+        closest_ore = closest_resource_tile('ore', task_factory.pos, list(self.heavy_mining_dibs.values()), self.board)
+        if self.step < 400 and need_heavies and enough_water and distance_to(task_factory.pos, closest_ore) < 13:
             return q_builder.build_mining_queue("ore")
         else:
             return q_builder.build_mining_queue("ice")
@@ -817,7 +825,7 @@ class Agent():
 
         # Homer tasks
         if first_task_word in homer:
-            queue = self.homer_task_assignment(q_builder, _task, task_factory, light=light)
+            queue = self.homer_task_assignment(q_builder, _task, task_factory)
             self.last_state[unit.unit_id] = "homer"
             self.factory_homers[task_factory.unit_id] = unit.unit_id
             return queue
@@ -914,31 +922,35 @@ class Agent():
         self.path_home[unit.unit_id] = path_home
         self.cost_home[unit.unit_id] = cost_home
 
-        if need_recharge and state != "recharging" and state != "low battery":
-            q_builder.clear_mining_dibs()
-            q_builder.clear_lichen_dibs()
-            queue = q_builder.build_recharge_queue()
-            print(f"Step {self.step}: {unit.unit_id} interrupting queue to recharge", file=sys.stderr)
-            self.remove_old_next_pos_from_occ_next(unit)
-            self.update_queues(unit, queue)
+        # if need_recharge and state != "recharging" and state != "low battery" and state != "solar charging" and state != "waiting":
+        #     q_builder.clear_mining_dibs()
+        #     q_builder.clear_lichen_dibs()
+        #     queue = q_builder.build_recharge_queue()
+        #     print(f"Step {self.step}: {unit.unit_id} interrupting queue to recharge", file=sys.stderr)
+        #     self.remove_task_from_factory(unit)
+        #     self.remove_old_next_pos_from_occ_next(unit)
+        #     self.update_queues(unit, queue)
 
         # make sure closest factory is not about to run dry, save it if you have ice
         # home_pref=False results in closest_factory
         transferable, transfer_direction, trans_pos = q_builder.transfer_ready(home_pref=False)
+        ice_cargo = unit.cargo.ice
         not_already_transfering = state != "transferring"
-        if closest_factory.cargo.water < 50 and transferable and not_already_transfering and not need_recharge:
+        if closest_factory.cargo.water < 50 and transferable and not_already_transfering and not need_recharge and ice_cargo > 50:
             state = "transferring"
             q_builder = QueueBuilder(self, unit, closest_factory, self.board)
             q_builder.clear_mining_dibs()
             q_builder.clear_lichen_dibs()
             queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=True)
             print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}", file=sys.stderr)
+            self.remove_task_from_factory(unit)
             self.remove_old_next_pos_from_occ_next(unit)
             self.update_queues(unit, queue)
 
         # Check for evasions now that we have come up with our final queue and any interrupts
         evasion_queue = evasion_check(self, unit, task_factory, opp_units, self.board)
         if evasion_queue is not None:
+            self.remove_task_from_factory(unit)
             self.remove_old_next_pos_from_occ_next(unit)
             self.update_queues(unit, evasion_queue)
             return
@@ -946,16 +958,21 @@ class Agent():
         else:  # if you don't need to recharge
 
             # if you don't have a queue, build one
-            if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting":
+            if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting" or state == "solar panel":
                 queue = self.mining_decision(task_factory, q_builder, light=is_light)  # try to get a new queue
 
                 # if you were waiting before and you're waiting now, and you have a queue, just keep waiting
                 was_waiting = state == "waiting"  # was waiting to start the step
                 is_waiting = self.unit_states[unit.unit_id] == "waiting"  # still waiting after decision tree
+                was_solar_panel = state == "solar panel"
+                is_solar_panel = self.unit_states[unit.unit_id] == "solar panel"
                 has_a_queue = len(self.action_queue[unit.unit_id]) > 0 and self.action_queue[unit.unit_id] != []
-                if was_waiting and is_waiting and has_a_queue:
-                    # you were already waiting and nothing new came up
-                    # so just continue waiting and add your next pos to occupied_next
+                still_waiting = was_waiting and is_waiting and has_a_queue
+                still_solar_panel = was_solar_panel and is_solar_panel and has_a_queue
+                if still_waiting or still_solar_panel:
+                    # you were already waiting/solar and nothing new came up
+                    # so just continue waiting/solr and add your next pos to occupied_next
+                    # update the local action queue, but don't update the new_queue
                     self.add_nextpos_to_occnext(unit)
                     return
 
@@ -1072,9 +1089,18 @@ class Agent():
                     continue
 
                 elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
-                    total_units = len(units)
+                    if self.step < 100:
+                        lights_wanted = 6
+                    elif self.step < 200:
+                        lights_wanted = 8
+                    elif self.step < 400:
+                        lights_wanted = 10
+                    else:
+                        lights_wanted = 20
+
+                    light_units = len(self.my_light_units)
                     total_factories = len(factories)
-                    need_basic_lights = total_units < total_factories * 20
+                    need_basic_lights = light_units < total_factories * lights_wanted
                     have_plenty_of_heavies = len(self.my_heavy_units) > total_factories * 2
                     if self.factory_needs_light[factory.unit_id] and (need_basic_lights or have_plenty_of_heavies):
                         if self.step > 200:

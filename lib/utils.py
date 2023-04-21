@@ -277,7 +277,19 @@ def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
     return target_tile
 
 
-def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, board, priority=False, tile_amount=0, group=None):
+def get_outer_adjacent_tiles(center_tile):
+    x, y = center_tile
+    adjacent_tiles = [
+        (x - 2, y - 1), (x - 2, y), (x - 2, y + 1),  # tiles left of the left column
+        (x + 2, y - 1), (x + 2, y), (x + 2, y + 1),  # tiles right of the right column
+        (x - 1, y - 2), (x, y - 2), (x + 1, y - 2),  # tiles above the top row
+        (x - 1, y + 2), (x, y + 2), (x + 1, y + 2),  # tiles below the bottom row
+    ]
+    return adjacent_tiles
+
+
+def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, board, priority=False, tile_amount=0,
+                       group=None):
     lichen_tiles = np.copy(board["lichen_strains"])
     lichen_amounts = np.copy(board["lichen"])
     for pos in off_limits:
