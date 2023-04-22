@@ -400,18 +400,25 @@ class Agent():
         helpers, adjacents = [], []
         heavies, lights = [], []
         homers = []
+        attackers = []
         for uid, u in units.items():
 
             # this check should go in some sort of unit setup function
             if uid not in self.action_queue.keys():
                 self.action_queue[uid] = []
+
             if u.unit_id in self.factory_homers.values():
                 homers.append(u)
+            #
+            # if uid in self.last_state.keys() and self.last_state[uid] == "attacking":
+            #     attackers.append(u)
+            #
             elif u.unit_type == "HEAVY":
                 if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
                     adjacents.append(u)
                 else:
                     heavies.append(u)
+
             elif u.unit_type == "LIGHT":
                 if uid in self.unit_states.keys() and self.unit_states[uid] == "helping":
                     helpers.append(u)
@@ -564,9 +571,9 @@ class Agent():
                 # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
-            closest_enemy = get_closest_factory(self.opp_factories, factory.pos)
-            if distance_to(factory.pos, closest_enemy.pos) <= 20:
-                heavy_todo.append("aggro")
+            # closest_enemy = get_closest_factory(self.opp_factories, factory.pos)
+            # if distance_to(factory.pos, closest_enemy.pos) <= 20:
+            #     heavy_todo.append("aggro")
 
             if self.step >= 100:
                 dibbed = list(self.heavy_mining_dibs.values())
@@ -628,6 +635,14 @@ class Agent():
             homer_state = self.unit_states[homer_id]
         else:
             homer_state = None
+
+        # don't water if you are surrounded, it won't increase your power anyway
+        surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, [], 1)
+        lichen_map = self.board['lichen_strains'][factory.strain_id]
+        lichen_count = np.count_nonzero(lichen_map == 1)
+        if surrounded and lichen_count > 0 and self.step < 800:
+            return
+
         if factory.cargo.water > 50 and game_state.real_env_steps <= 100:
             if homer_state and homer_state == "mining adjacent":
                 queue = factory.water()
@@ -639,7 +654,7 @@ class Agent():
                 return
         if factory.cargo.water > 50 and 100 < game_state.real_env_steps < 750:
             power = factory.power
-            if power > 5000:
+            if power > 2000:
                 if game_state.real_env_steps % 4 == 0:
                     queue = factory.water()
                     self.update_queues(factory, queue)
@@ -793,6 +808,7 @@ class Agent():
         q_builder.clear_lichen_dibs()
         q_builder.clear_previous_task()
         unit = q_builder.unit
+        attacking = False
 
         # if you were just attacking, but ran out of queue, try to keep attacking.
         # if you can't, then you'll naturally recurse to the next task
@@ -803,6 +819,7 @@ class Agent():
         #     _task = "helper"
 
         elif unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
+            attacking = True
             _task = "lichen"
             self.last_state[unit.unit_id] = "recursing"
 
@@ -908,18 +925,21 @@ class Agent():
         # Attacking tasks
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
         dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
-        lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=True)
-        if lichen_tile is not None and distance_to(lichen_tile, task_factory.pos) <= 30:
+        if attacking or self.step > 900:
+            lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=False)
+        else:
+            lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=True)
+        if lichen_tile is not None:
             queue = q_builder.build_attack_queue(lichen_tile)
             if queue is None:
-                # TODO: aggro queue for heavies
                 queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False)
 
-            self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             if queue is not None:
+                self.last_state[unit.unit_id] = "attacking"
                 return queue
 
         # if you made it here, you couldn't find a lichen tile
+        print(f"Step {self.step}: {unit.unit_id} couldn't find a/an {_task} queue, waiting", file=sys.stderr)
         return q_builder.build_waiting_queue(length=3)
 
     def decision_tree(self, unit, factories, opp_units):
@@ -1147,7 +1167,7 @@ class Agent():
 
                 elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
                     if self.step < 100:
-                        lights_wanted = 6
+                        lights_wanted = 5
                     elif self.step < 200:
                         lights_wanted = 8
                     elif self.step < 400:

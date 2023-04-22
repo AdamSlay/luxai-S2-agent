@@ -5,20 +5,26 @@ def lichen_surrounded(board, strain_id, opp_strains, off_limits, x) -> (bool, in
     lichen_map = board["lichen"]
     lichen_strains_map = board["lichen_strains"]
     rubble_map = board["rubble"]
+    ice_map = board["ice"]
+    ore_map = board["ore"]
+    ice_positions = {(i, j) for i, row in enumerate(ice_map) for j, value in enumerate(row) if value == 1}
+    ore_positions = {(i, j) for i, row in enumerate(ore_map) for j, value in enumerate(row) if value == 1}
+
+    combined_positions = ice_positions.union(ore_positions)
 
     my_lichen_positions = np.argwhere((lichen_strains_map == strain_id) & (lichen_map > 0))
     off_limits = [tuple(pos) for pos in off_limits]
 
-    # Check if 80% of lichen tiles are above 40, this is a good indicator that the lichen is bordering another strain
-    if np.mean(lichen_map[my_lichen_positions[:, 0], my_lichen_positions[:, 1]] > 40) > 0.8:
-        return True, 5
+    # Check if 80% of lichen tiles are above 80, this is a good indicator that the lichen is bordering another strain
+    if np.mean(lichen_map[my_lichen_positions[:, 0], my_lichen_positions[:, 1]] > 80) > 0.9:
+        return True, 0
 
     free_spaces = 0
     for pos in my_lichen_positions:
         x, y = pos
         neighbors = [(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
         for nx, ny in neighbors:
-            is_valid_pos = 0 <= nx < 48 and 0 <= ny < 48 and (nx, ny) not in off_limits
+            is_valid_pos = 0 <= nx < 48 and 0 <= ny < 48 and (nx, ny) not in combined_positions
             if is_valid_pos and rubble_map[nx, ny] == 0 and \
                     (lichen_strains_map[nx, ny] in opp_strains or lichen_strains_map[nx, ny] == -1):
                 free_spaces += 1

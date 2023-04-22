@@ -181,8 +181,15 @@ class QueueBuilder:
         dibs = self.agent.lichen_dibs
         dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
         dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
-        dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 50
+        dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 20
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
+        if self.agent.step > 850:
+            dig_allowance = 1000 if self.unit.unit_type == "HEAVY" else 50
+        if self.agent.step > 940:
+            dig_allowance = 200 if self.unit.unit_type == "HEAVY" else 10
+        if self.agent.step > 970:
+            dig_allowance = 60 if self.unit.unit_type == "HEAVY" else 5
+            reserve_power = 0
         max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
         power_remaining = self.unit.power
         lichen_amounts = self.board["lichen"]
@@ -198,17 +205,17 @@ class QueueBuilder:
         # PATHS AND COSTS
         path_to_lichen = self.get_path_positions(position, lichen_tile)
         if not path_to_lichen and not on_tile(self.unit.pos, lichen_tile):
-            lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board)
-            if lichen_tile is None:
-                print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking but cant find a lichen tile',
-                      file=sys.stderr)
-                return None
-            path_to_lichen = self.get_path_positions(position, lichen_tile)
-            if not path_to_lichen:
-                print(
-                    f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant find a path {path_to_lichen}',
-                    file=sys.stderr)
-                return None
+            # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board)
+            # if lichen_tile is None:
+            #     print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking but cant find a lichen tile',
+            #           file=sys.stderr)
+            #     return None
+            # path_to_lichen = self.get_path_positions(position, lichen_tile)
+            # if not path_to_lichen:
+            print(
+                f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant find a path {path_to_lichen}',
+                file=sys.stderr)
+            return None
         elif on_tile(self.unit.pos, lichen_tile) and (self.unit.pos[0], self.unit.pos[1]) in self.agent.occupied_next:
             queue = self.build_waiting_queue(length=7)
             return queue
@@ -216,7 +223,8 @@ class QueueBuilder:
         cost_from_lichen = 0
         return_path = []
         cost_to_lichen = self.get_path_cost(path_to_lichen)
-        if self.agent.step < 930:
+        endgame = self.agent.step > 800
+        if not endgame and self.unit.unit_type == "HEAVY":
             # first try the target factory
             path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
             if not path_from_lichen:
@@ -237,11 +245,23 @@ class QueueBuilder:
         # CAN YOU AFFORD IT?
         if total_cost > power_remaining:
             if total_cost > max_power:
-                print(
-                    f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but its too expensive: {total_cost}',
-                    file=sys.stderr)
-                return None  # it's not feasible to attack this lichen, return None and go back through decision tree
-            return self.build_recharge_queue(factory=target_factory, attacking=True)
+                if self.unit.power < max_power * 0.8:
+                    queue = self.build_recharge_queue(factory=target_factory, attacking=True)
+                    return queue
+                else:
+                    print(
+                        f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but its too expensive: {total_cost}, trekking',
+                        file=sys.stderr)
+                    queue = self.build_trekking_queue(path_to_lichen, max_power=max_power)
+                    return queue
+                # print(
+                #     f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but its too expensive: {total_cost}',
+                #     file=sys.stderr)
+                # return None  # it's not feasible to attack this lichen, return None and go back through decision tree
+            elif self.unit.unit_type == "LIGHT" or endgame:
+                return self.build_waiting_queue(length=77)
+            if self.unit.unit_type == "HEAVY":
+                return self.build_recharge_queue(factory=target_factory, attacking=True)
 
         # YES YOU CAN
         if not on_tile(self.unit.pos, lichen_tile):
@@ -250,12 +270,22 @@ class QueueBuilder:
         power_remaining -= cost_to_lichen + reserve_power  # <---------------- accounting for reserve power here
         tile_amount = lichen_amounts[lichen_tile[0]][lichen_tile[1]]
 
-        digs = self.get_number_of_digs(power_remaining, cost_to_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
+        digs = self.get_number_of_digs(power_remaining, cost_from_lichen, tile_amt=tile_amount, dig_rate=dig_rate)
         if digs <= 0:
-            print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant dig digs: {digs}',
-                  file=sys.stderr)
-            # this task is not feasible for this unit at this time
-            return None
+            if on_tile(self.unit.pos, lichen_tile):
+                queue = self.build_waiting_queue(length=9)
+                dibs[self.unit.unit_id] = [lichen_tile]
+                return queue
+            else:
+                print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant dig. digs: {digs}',
+                      file=sys.stderr)
+                return queue[:20]
+
+
+            # print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but cant dig digs: {digs}',
+            #       file=sys.stderr)
+            # # this task is not feasible for this unit at this time
+            # return None
 
         dig_allowance -= digs * dig_cost
         power_remaining -= digs * dig_cost
@@ -278,7 +308,7 @@ class QueueBuilder:
             # PATHS AND COSTS
             path_to_lichen = self.get_path_positions(position, lichen_tile)
             cost_to_lichen = self.get_path_cost(path_to_lichen)
-            if self.agent.step < 930:
+            if not endgame and self.unit.unit_type == "HEAVY":
                 path_home_tile = closest_tile_in_group(lichen_tile, [], return_path)
                 if path_home_tile is not None:
                     return_path = [tuple(pos) for pos in return_path]
@@ -355,6 +385,12 @@ class QueueBuilder:
         # if lichen_group is None:
         #     lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board, priority=True)
         # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board, priority=True, group=lichen_group)
+
+    def build_trekking_queue(self, path_positions, max_power=0):
+        # get the path_positions for the amount of path that you can afford given your power
+        affordable_path = self.get_path_cost(path_positions, max_power=max_power)
+        queue = self.get_path_moves(affordable_path, pauses=5)
+        return queue[:20]
 
     def build_aggro_queue(self):
         self.agent.unit_states[self.unit.unit_id] = "aggro"
@@ -717,14 +753,25 @@ class QueueBuilder:
         self.clear_previous_task()
         self.clear_lichen_dibs()
         reserve_power = self.agent.low_reserve_power[self.unit.unit_type]
+        attacker = self.unit.unit_id in self.agent.last_state.keys() and \
+                            self.agent.last_state[self.unit.unit_id] == "attacking"
+        light_attacker = self.unit.unit_type == "LIGHT" and attacker
+        heavy_attacker = self.unit.unit_type == "HEAVY" and attacker and self.agent.step > 800
 
         # If you barely have enough power to get home, recharge
         if self.unit.power < cost_home + reserve_power:
-            self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
-            queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
-            if len(queue) == 0:
-                queue = self.build_recharge_queue()
-            return queue
+            if not light_attacker and not heavy_attacker:
+                self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
+                queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
+                if len(queue) == 0:
+                    queue = self.build_recharge_queue()
+                return queue
+            elif (light_attacker or heavy_attacker) and distance_to(self.unit.pos, self.target_factory.pos) < 5:
+                self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
+                queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
+                if len(queue) == 0:
+                    queue = self.build_recharge_queue()
+                return queue
 
         light_vs_heavy = self.unit.unit_type == "LIGHT" and opp_unit.unit_type == "HEAVY"
         # is_homer = self.agent.all_unit_titles[self.unit.unit_id] == "homer"
@@ -737,6 +784,21 @@ class QueueBuilder:
                 # if you can't find a direction while avoiding threats, try to find a direction without avoiding threats
                 direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
             queue = [self.unit.move(direction)]
+            return queue
+
+        if light_attacker or heavy_attacker:
+            direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
+            if direction == 0:
+                direction = move_toward(self.unit.pos, self.target_factory.pos, self.agent.occupied_next)
+
+            next_pos = next_position(self.unit.pos, direction)
+            cost_to_next = self.get_path_cost([next_pos])
+            if cost_to_next > self.unit.power + 1:
+                queue = self.build_waiting_queue(length=17)
+                return queue
+
+            queue = [self.unit.move(direction)]
+            return queue
 
         # Otherwise, find a direction to move in then move back
         else:
@@ -962,7 +1024,7 @@ class QueueBuilder:
         # print(f"Step {self.agent.step}: {self.unit.unit_id} is picking up {pickup_amt} from {charge_factory.unit_id}", file=sys.stderr)
         return pickup_amt
 
-    def get_path_cost(self, path_positions: list, type=None) -> int:
+    def get_path_cost(self, path_positions: list, type=None, max_power=None) -> int or list:
         if type is None:
             type = self.unit.unit_type
 
@@ -975,8 +1037,20 @@ class QueueBuilder:
             multiplier = 0.05
             move_cost = 1
 
-        total_cost = 0
         rubble_map = self.board["rubble"]
+
+        if max_power is not None:
+            path = []
+            power_remaining = max_power
+            for pos in path_positions:
+                rubble_cost = floor(rubble_map[pos[0]][pos[1]] * multiplier)
+                power_remaining -= rubble_cost + move_cost
+                if power_remaining <= queue_cost:
+                    break
+                path.append(pos)
+            return path
+
+        total_cost = 0
         for pos in path_positions:
             rubble_cost = floor(rubble_map[pos[0]][pos[1]] * multiplier)
             total_cost += (rubble_cost + move_cost)
