@@ -82,6 +82,7 @@ class Agent():
         self.light_mining_dibs = dict()  # {unit_id: pos}
         self.heavy_mining_dibs = dict()
         self.lichen_dibs = dict()  # {unit_id: [pos, pos, etc]}
+        self.aggro_dibs = dict()  # {unit_id: fid}
 
         # reserve power
         self.moderate_reserve_power = {"LIGHT": 15, "HEAVY": 150}
@@ -563,6 +564,10 @@ class Agent():
                 # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
+            closest_enemy = get_closest_factory(self.opp_factories, factory.pos)
+            if distance_to(factory.pos, closest_enemy.pos) <= 20:
+                heavy_todo.append("aggro")
+
             if self.step >= 100:
                 dibbed = list(self.heavy_mining_dibs.values())
                 dibbed.extend(list(self.light_mining_dibs.values()))
@@ -852,7 +857,7 @@ class Agent():
         helping = ["helper"]
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
-        attacking = ["lichen", "aggro"]
+        aggro = ["aggro"]
         first_task_word = _task.split(":")[0]
 
         # Homer tasks
@@ -890,6 +895,14 @@ class Agent():
             if queue is None:
                 queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
             self.last_state[unit.unit_id] = "helping"
+            return queue
+
+        # Aggro tasks
+        elif first_task_word in aggro:
+            queue = q_builder.build_aggro_queue()
+            if queue is None:
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
+            self.last_state[unit.unit_id] = "aggro"
             return queue
 
         # Attacking tasks

@@ -16,6 +16,7 @@ class QueueBuilder:
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
+        self.clear_aggro_dibs()
 
         # TRANSFER
         queue = []
@@ -160,6 +161,7 @@ class QueueBuilder:
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
+        self.clear_aggro_dibs()
 
         target_factory = self.optimal_recharge_factory()
         if target_factory is None:
@@ -354,6 +356,56 @@ class QueueBuilder:
         #     lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board, priority=True)
         # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board, priority=True, group=lichen_group)
 
+    def build_aggro_queue(self):
+        self.agent.unit_states[self.unit.unit_id] = "aggro"
+        self.clear_mining_dibs()
+        self.clear_lichen_dibs()
+        self.clear_previous_task()
+        self.clear_aggro_dibs()
+
+        undibbed_factories = {fid: f for fid, f in self.agent.opp_factories.items() if fid not in self.agent.aggro_dibs.values()}
+        if len(undibbed_factories) == 0:
+            print(f"Step {self.agent.step}: {self.unit.unit_id} no undibbed factories", file=sys.stderr)
+            return None
+
+        undibbed_factory = get_closest_factory(undibbed_factories, self.unit.pos)
+
+        mining_tile = closest_resource_tile("ice", undibbed_factory.pos, [], self.board)
+        cardinal_tiles = get_cardinal_tiles(mining_tile)
+        target_tile = closest_tile_in_group(self.unit.pos, self.agent.opp_factory_tiles, cardinal_tiles)
+        if on_tile(self.unit.pos, target_tile) and can_stay(self.unit.pos, list(self.agent.occupied_next)):
+            queue = [self.unit.move(0, n=25)]
+            return queue
+
+        path = self.get_path_positions(self.unit.pos, mining_tile)
+        path_back = self.get_path_positions(mining_tile, self.target_factory.pos, occupied=self.agent.opp_factory_tiles)
+        if path is None:
+            print(f"Step {self.agent.step}: {self.unit.unit_id} cant find aggro path to {undibbed_factory.unit_id}", file=sys.stderr)
+            return None
+        if path_back is None:
+            print(f"Step {self.agent.step}: {self.unit.unit_id} cant find aggro path back to {self.target_factory.unit_id}", file=sys.stderr)
+            return None
+
+        path_cost = self.get_path_cost(path)
+        path_back_cost = self.get_path_cost(path_back)
+        reserve_power = 150
+        aggro_allowance = 400
+        total_cost = path_cost + path_back_cost + aggro_allowance + reserve_power
+        total_cost = total_cost if total_cost > 1000 else 1000
+
+        if total_cost >= self.unit.power:
+            if total_cost > 2999:
+                return None
+            print(f"Step {self.agent.step}: {self.unit.unit_id} cant afford aggro path to {undibbed_factory.unit_id}, cost: {total_cost}, power: {self.unit.power}", file=sys.stderr)
+            queue = self.build_recharge_queue()
+            return queue
+
+        self.agent.factory_tasks_heavy[self.target_factory.unit_id][self.unit.unit_id] = "aggro"
+        self.agent.aggro_dibs[self.unit.unit_id] = undibbed_factory.unit_id
+        queue = self.get_path_moves(path)
+        queue.append(self.unit.move(0, n=25))
+        return queue[:20]
+
     def build_recharge_queue(self, occupied=None, factory=None, slow_charge=False, attacking=False,
                              in_danger=False) -> list:
         # The point of occupied is to pass in opp_heavies or some such to avoid them in case you are super low or something
@@ -373,6 +425,7 @@ class QueueBuilder:
             self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
+        self.clear_aggro_dibs()
 
         if factory_low and not a_homer and not a_helper and not in_danger:
             if self.unit.unit_type == "HEAVY":
@@ -543,6 +596,7 @@ class QueueBuilder:
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
+        self.clear_aggro_dibs()
         queue = []
         if self.unit.unit_type == "HEAVY":
             solar_charge = 10
@@ -587,6 +641,7 @@ class QueueBuilder:
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
+        self.clear_aggro_dibs()
 
         outer_adjacent_tiles = get_outer_adjacent_tiles(factory.pos)
         occupied_or_resources = [u.pos for u in self.agent.my_heavy_units if u.unit_id != self.unit.unit_id]
@@ -826,6 +881,10 @@ class QueueBuilder:
 
         if self.unit.unit_id in dibs_weight_class.keys():
             del dibs_weight_class[self.unit.unit_id]
+
+    def clear_aggro_dibs(self):
+        if self.unit.unit_id in self.agent.aggro_dibs.keys():
+            del self.agent.aggro_dibs[self.unit.unit_id]
 
     def clear_lichen_dibs(self):
         if self.unit.unit_id in self.agent.lichen_dibs.keys():
