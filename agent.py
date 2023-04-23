@@ -570,11 +570,11 @@ class Agent():
                     [non_rubble.append("ice") for _ in range(ice_miners - 2)]
 
                 # if enemy is growing lichen nearby, attack it
-                # dibbed = list(self.light_mining_dibs.values())
-                # dibbed.extend(list(self.heavy_mining_dibs.values()))
-                # opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-                # if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 30:
-                #     [non_rubble.append("lichen") for _ in range(4)]
+                dibbed = list(self.light_mining_dibs.values())
+                dibbed.extend(list(self.heavy_mining_dibs.values()))
+                opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
+                if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 30:
+                    [non_rubble.append("lichen") for _ in range(2)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
                 if factory.cargo.metal < 100 and 100 < self.step < 900:
@@ -596,6 +596,10 @@ class Agent():
                 if cost_to_clearing > 0:
                     heavy_todo.append("clearing path")
 
+            if len(self.my_heavy_units) < len(self.my_factories) * 2 and factory.cargo.ore < 200 and self.step < 850:
+                # if not, then I need to mine ore
+                heavy_todo.append("ore")
+
             if number_of_ice > 1:
                 heavy_todo.append("ice")
 
@@ -604,22 +608,18 @@ class Agent():
                 emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 2 else 2
                 [heavy_todo.append("ice") for _ in range(emergency_ice_miners)]
 
-            if len(self.my_heavy_units) < len(self.my_factories) * 2 and factory.cargo.ore < 200 and self.step < 850:
-                # if not, then I need to mine ore
-                heavy_todo.append("ore")
-
             # closest_enemy = get_closest_factory(self.opp_factories, factory.pos)
             # if distance_to(factory.pos, closest_enemy.pos) <= 20:
             #     heavy_todo.append("aggro")
 
-            # if self.step >= 100:
-            #     dibbed = list(self.heavy_mining_dibs.values())
-            #     dibbed.extend(list(self.light_mining_dibs.values()))
-            #     closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-            #     if closest_lichen is not None and distance_to(factory.pos, closest_lichen) <= 35:
-            #         # if so, then I need to attack
-            #         # [heavy_todo.append("lichen") for _ in range(2)]
-            #         heavy_todo.append("lichen")
+            if self.step >= 100:
+                dibbed = list(self.heavy_mining_dibs.values())
+                dibbed.extend(list(self.light_mining_dibs.values()))
+                closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
+                if closest_lichen is not None and distance_to(factory.pos, closest_lichen) <= 35:
+                    # if so, then I need to attack
+                    # [heavy_todo.append("lichen") for _ in range(2)]
+                    heavy_todo.append("lichen")
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
             surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains,
@@ -834,7 +834,7 @@ class Agent():
         else:
             return q_builder.build_mining_queue("ice")
 
-    def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True, ore_path_ok=True, clearing_path_ok=True):
+    def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True, ore_path_ok=True, clearing_path_ok=True, rubble_ok=True):
         if light:
             factory_needs = self.factory_needs_light
             tasks_being_done = self.factory_tasks_light
@@ -859,7 +859,6 @@ class Agent():
         elif unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
             attacking = True
             _task = "lichen"
-            self.last_state[unit.unit_id] = "recursing"
 
         elif task_factory.unit_id in factory_needs.keys():
             tasks = factory_needs[task_factory.unit_id].copy()
@@ -869,6 +868,8 @@ class Agent():
                 tasks = [task for task in tasks if task != "ore path"]
             if not clearing_path_ok:
                 tasks = [task for task in tasks if task != "clearing path"]
+            if not rubble_ok:
+                tasks = [task for task in tasks if task != "rubble"]
             if len(tasks) > 0:
                 _task = tasks[0]
                 self.pop_factory_needs(task_factory, light=light)
@@ -939,7 +940,7 @@ class Agent():
                 queue = q_builder.build_mining_queue(resource)
 
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=False)
                 self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -949,9 +950,9 @@ class Agent():
 
             if queue is None:
                 if first_task_word == "ore path":
-                    queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=False, clearing_path_ok=clearing_path_ok)
+                    queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=False, clearing_path_ok=clearing_path_ok, rubble_ok=rubble_ok)
                 else:
-                    queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=False)
+                    queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=False, rubble_ok=rubble_ok)
             self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -960,7 +961,7 @@ class Agent():
             homer = self.my_units[homer_id]
             queue = q_builder.build_helper_queue(homer)
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=rubble_ok)
             self.last_state[unit.unit_id] = "helping"
             return queue
 
@@ -968,14 +969,14 @@ class Agent():
         elif first_task_word in aggro:
             queue = q_builder.build_aggro_queue()
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=rubble_ok)
             self.last_state[unit.unit_id] = "aggro"
             return queue
 
         # Attacking tasks
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
         dibbed_tiles.extend([pos for pos in self.light_mining_dibs.values()])
-        if attacking or self.step > 900:
+        if self.step > 900:
             lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=False)
         else:
             lichen_tile = closest_opp_lichen(self.opp_strains, q_builder.unit.pos, dibbed_tiles, self.board, priority=True)
@@ -1031,9 +1032,18 @@ class Agent():
 
         q_builder = QueueBuilder(self, unit, task_factory, self.board)
 
-        need_recharge, path_home, cost_home = q_builder.check_need_recharge()
+        if state == "attacking":
+            need_recharge, path_home, cost_home = q_builder.check_need_recharge(factory=closest_factory)
+        else:
+            need_recharge, path_home, cost_home = q_builder.check_need_recharge()
         self.path_home[unit.unit_id] = path_home
         self.cost_home[unit.unit_id] = cost_home
+        if state == "attacking" and need_recharge and is_light:
+            queue = q_builder.build_waiting_queue(length=33)
+            self.remove_old_next_pos_from_occ_next(unit)
+            self.update_queues(unit, queue)
+
+
 
         # if need_recharge and state != "recharging" and state != "low battery" and state != "solar charging" and state != "waiting":
         #     q_builder.clear_mining_dibs()
@@ -1198,6 +1208,8 @@ class Agent():
         for unit in lights:
             if unit.unit_id not in self.helper_treated:
                 self.decision_tree(unit, factories, opp_units)
+
+        # remaining_light_attackers = self.assign_tasks_to_attackers(light_attackers, "LIGHT")
 
         for unit in light_attackers:
             self.decision_tree(unit, factories, opp_units)
