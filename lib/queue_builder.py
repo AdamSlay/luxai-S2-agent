@@ -21,6 +21,7 @@ class QueueBuilder:
         # TRANSFER
         queue = []
         not_a_homer = self.unit.unit_id not in self.agent.factory_homers.values()
+        not_an_icer = self.unit.unit_id not in self.agent.factory_icers.values()
         max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
         transfer_ready, transfer_direction, start_postition = self.transfer_ready(home_pref=True)
         transfer_queue_cost = 0
@@ -55,7 +56,7 @@ class QueueBuilder:
             resource_tile = lichen_tile
             tile_amount = self.board["lichen"][resource_tile[0]][resource_tile[1]]
         else:
-            if self.unit.unit_type == "HEAVY" and not_a_homer:
+            if self.unit.unit_type == "HEAVY" and not_a_homer and not_an_icer:
                 # if you're a heavy, don't swipe a mining tile form another heavy just because you have a lower uid than them
                 heavy_tiles = [u.pos for u in self.agent.my_heavy_units if u.unit_id != self.unit.unit_id]
                 dibs_tiles.extend(heavy_tiles)
@@ -66,6 +67,8 @@ class QueueBuilder:
             # can't find a resource, return None and get back into the decision tree
             if not not_a_homer:
                 print(f"Step {self.agent.step}: {self.unit.unit_id} can't find a resource tile, but is a homer, dibs{dibs}", file=sys.stderr)
+            if not not_an_icer:
+                print(f"Step {self.agent.step}: {self.unit.unit_id} can't find a resource tile, but is an icer, dibs{dibs}", file=sys.stderr)
             return None
 
         # Check if mining adjacent
@@ -221,24 +224,24 @@ class QueueBuilder:
         cost_from_lichen = 0
         return_path = []
         cost_to_lichen = self.get_path_cost(path_to_lichen)
-        if not endgame and self.unit.unit_type == "HEAVY":
-            # first try the target factory
-            path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
-            if not path_from_lichen:
-                # then just try the closest factory to the lichen tile
-                target_factory = get_closest_factory(self.agent.my_factories, lichen_tile)
-                # you don't need to care about occupied_next for the return path, because you arent actually going to use it
-                path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos, occupied=self.agent.opp_factory_tiles)
-                if not path_from_lichen:
-                    # if you still can't find a path, return None
-                    print(
-                        f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but no path_from_lichen {path_from_lichen}',
-                        file=sys.stderr)
-                    return None
-            cost_from_lichen = self.get_path_cost(path_from_lichen)
-            return_path = path_from_lichen
-        else:
-            cost_from_lichen = self.agent.cost_home[self.unit.unit_id]
+        # if not endgame and self.unit.unit_type == "HEAVY":
+        #     # first try the target factory
+        #     path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
+        #     if not path_from_lichen:
+        #         # then just try the closest factory to the lichen tile
+        #         target_factory = get_closest_factory(self.agent.my_factories, lichen_tile)
+        #         # you don't need to care about occupied_next for the return path, because you arent actually going to use it
+        #         path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos, occupied=self.agent.opp_factory_tiles)
+        #         if not path_from_lichen:
+        #             # if you still can't find a path, return None
+        #             print(
+        #                 f'Step {self.agent.step}: {self.unit.unit_id} is attacking {lichen_tile} but no path_from_lichen {path_from_lichen}',
+        #                 file=sys.stderr)
+        #             return None
+        #     cost_from_lichen = self.get_path_cost(path_from_lichen)
+        #     return_path = path_from_lichen
+        # else:
+        cost_from_lichen = self.agent.cost_home[self.unit.unit_id]
         total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
 
         # CAN YOU AFFORD IT?
@@ -487,9 +490,9 @@ class QueueBuilder:
             queue = self.build_waiting_queue(length=12)
             return queue
 
-        elif self.unit.unit_type == "HEAVY":
-            print(f"Step {self.agent.step}: {self.unit.unit_id} is a homer/icer and building recharge queue for {target_factory.unit_id}"
-                  f"- icers: {self.agent.factory_icers}, homers: {self.agent.factory_homers}", file=sys.stderr)
+        # elif self.unit.unit_type == "HEAVY":
+        #     print(f"Step {self.agent.step}: {self.unit.unit_id} is a homer/icer and building recharge queue for {target_factory.unit_id}"
+        #           f"- icers: {self.agent.factory_icers}, homers: {self.agent.factory_homers}", file=sys.stderr)
 
         homer_or_icer = a_homer or an_icer
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
@@ -798,24 +801,15 @@ class QueueBuilder:
 
         # If you barely have enough power to get home, recharge
         if self.unit.power < cost_home + reserve_power:
-            if not light_attacker and not heavy_attacker:
-                self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
-                queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
-                if len(queue) == 0:
-                    queue = self.build_recharge_queue()
-                if queue[0][0] != 0:
-                    direction = move_toward(self.unit.pos, self.target_factory.pos, list(self.agent.occupied_next))
+            self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
+            queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
+            if len(queue) == 0:
+                queue = self.build_recharge_queue()
+            if queue[0][0] == 0:  # it's a move
+                if queue[0][1] == 0:  # it's a move in place
+                    direction = move_toward(self.unit.pos, self.target_factory.pos, avoid_positions)
                     queue.insert(0, self.unit.move(direction))
-                return queue[:20]
-            elif (light_attacker or heavy_attacker) and distance_to(self.unit.pos, self.target_factory.pos) < 5:
-                self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
-                queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
-                if len(queue) == 0:
-                    queue = self.build_recharge_queue()
-                if queue[0][0] != 0:
-                    direction = move_toward(self.unit.pos, self.target_factory.pos, list(self.agent.occupied_next))
-                    queue.insert(0, self.unit.move(direction))
-                return queue[:20]
+            return queue[:20]
 
         light_vs_heavy = self.unit.unit_type == "LIGHT" and opp_unit.unit_type == "HEAVY"
         # is_homer = self.agent.all_unit_titles[self.unit.unit_id] == "homer"

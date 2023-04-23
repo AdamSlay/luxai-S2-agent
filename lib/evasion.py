@@ -115,7 +115,7 @@ def evasion_check(self, unit, target_factory, opp_units, board):
             queue = q_builder.build_evasion_dance(avoid_positions, cost_home, opp_unit=opp_u)
             return queue
         else:
-            print(f"Step {self.step}: {unit.unit_id} is evading, but next move is safe. returning None from evasion_check", file=sys.stderr)
+            # print(f"Step {self.step}: {unit.unit_id} is evading, but next move is safe. returning None from evasion_check", file=sys.stderr)
             # you are already moving to a safe tile, so just continue
             return None
 

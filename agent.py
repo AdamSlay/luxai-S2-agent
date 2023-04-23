@@ -878,33 +878,33 @@ class Agent():
             factory_needs = self.factory_needs_heavy
             tasks_being_done = self.factory_tasks_heavy
 
-        print(f"Step {self.step}: 4.1.10.1 {self.factory_icers}",file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.1 {self.factory_icers}",file=sys.stderr)
 
         q_builder.clear_mining_dibs()
         q_builder.clear_lichen_dibs()
         q_builder.clear_previous_task()
         unit = q_builder.unit
         attacking = False
-        print(f"Step {self.step}: 4.1.10.2 {self.factory_icers}",file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.2 {self.factory_icers}",file=sys.stderr)
 
         # if you were just attacking, but ran out of queue, try to keep attacking.
         # if you can't, then you'll naturally recurse to the next task
         if unit.unit_id in self.factory_homers.values():
             # print(f"Step {self.step}: {unit.unit_id} is a homer {self.factory_homers}",file=sys.stderr)
             _task = "homer"
-        print(f"Step {self.step}: 4.1.10.3 {self.factory_icers}",file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.3 {self.factory_icers}",file=sys.stderr)
 
         if unit.unit_id in self.factory_icers.values():
-            print(f"Step {self.step}: {unit.unit_id} is an icer {self.factory_icers}",file=sys.stderr)
+            # print(f"Step {self.step}: {unit.unit_id} is an icer {self.factory_icers}",file=sys.stderr)
             if self.factory_homers[task_factory.unit_id] == '':
                 self.factory_icers[task_factory.unit_id] = ''
                 _task = "homer"
             else:
-                print(f"Step {self.step}: 4.1.10.4 {self.factory_icers}", file=sys.stderr)
+                # print(f"Step {self.step}: 4.1.10.4 {self.factory_icers}", file=sys.stderr)
                 _task = "icer"
 
         elif unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok and self.last_state[unit.unit_id] != "icer" and unit.unit_id not in self.factory_icers.values():
-            print(f"Step {self.step}: 4.1.10.5 {self.factory_icers}", file=sys.stderr)
+            # print(f"Step {self.step}: 4.1.10.5 {self.factory_icers}", file=sys.stderr)
             attacking = True
             _task = "lichen"
 
@@ -938,14 +938,14 @@ class Agent():
                 # print(f"Step {self.step}: {unit.unit_id} has no tasks to do after popping factory needs",file=sys.stderr)
                 queue = q_builder.build_waiting_queue(length=1)
                 return queue
-            print(f"Step {self.step}: 4.1.10.6 {self.factory_icers}", file=sys.stderr)
+            # print(f"Step {self.step}: 4.1.10.6 {self.factory_icers}", file=sys.stderr)
             #
             # else:
             #     _task = factory_needs[task_factory.unit_id][0]
             #     self.pop_factory_needs(task_factory, light=light)
 
         else:
-            print(f"Step {self.step}: 4.1.10.7 {self.factory_icers}", file=sys.stderr)
+            # print(f"Step {self.step}: 4.1.10.7 {self.factory_icers}", file=sys.stderr)
             # check the other factories in order of nearness to this one and see if they need help
             # if they do, switch to helping them
             factory_in_need = self.find_closest_factory_with_needs(task_factory, factory_needs)
@@ -986,7 +986,7 @@ class Agent():
 
         if unit.unit_id in self.factory_icers.values() or last_state == "icer":
             _task = "icer"
-        print(f"Step {self.step}: 4.1.10.8 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.8 {self.factory_icers}", file=sys.stderr)
 
         helping = ["helper"]
         resources = ["rubble", "ice", "ore"]
@@ -1002,7 +1002,7 @@ class Agent():
             if queue is None:
                 queue = q_builder.build_waiting_queue(length=18)
             return queue
-        print(f"Step {self.step}: 4.1.10.9 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.9 {self.factory_icers}", file=sys.stderr)
 
         # Icer tasks
         if (first_task_word == "icer" or last_state == "icer") and (self.factory_icers[task_factory.unit_id] == unit.unit_id or self.factory_icers[task_factory.unit_id] == ''):
@@ -1013,7 +1013,7 @@ class Agent():
                 queue = q_builder.build_waiting_queue(length=19)
             return queue
 
-        print(f"Step {self.step}: 4.1.10.10 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.10 {self.factory_icers}", file=sys.stderr)
         # Mining tasks
         if first_task_word in resources:
             resource = _task
@@ -1025,7 +1025,7 @@ class Agent():
                 queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=False)
                 self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
-        print(f"Step {self.step}: 4.1.10.11 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.11 {self.factory_icers}", file=sys.stderr)
 
         # Pathing tasks
         if first_task_word in pathing:
@@ -1055,7 +1055,7 @@ class Agent():
                 queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=rubble_ok)
             self.last_state[unit.unit_id] = "aggro"
             return queue
-        print(f"Step {self.step}: 4.1.10.12 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.12 {self.factory_icers}", file=sys.stderr)
 
         # Attacking tasks
         dibbed_tiles = [pos for pos in self.heavy_mining_dibs.values()]
@@ -1072,7 +1072,7 @@ class Agent():
             if queue is not None:
                 self.last_state[unit.unit_id] = "attacking"
                 return queue
-        print(f"Step {self.step}: 4.1.10.13 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.10.13 {self.factory_icers}", file=sys.stderr)
 
         # if you made it here, you couldn't find a lichen tile
         # print(f"Step {self.step}: {unit.unit_id} couldn't find a/an {_task} queue, waiting", file=sys.stderr)
@@ -1098,7 +1098,7 @@ class Agent():
         # make sure you aren't about to dig up the rubble you just made by clearing opp lichen
         if len(self.action_queue[unit.unit_id]) > 0 and state == "attacking":
             self.check_valid_dig(unit)
-        print(f"Step {self.step}: 4.1.3 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.3 {self.factory_icers}", file=sys.stderr)
 
         closest_factory = get_closest_factory(factories, unit.pos)
         task_factory = closest_factory
@@ -1111,31 +1111,28 @@ class Agent():
             if closest_heavy is not None and on_tile(unit.pos, closest_heavy) and has_no_heavies:
                 # print(f"Step {self.step}: {unit.unit_id} is the closest heavy to {fid}, taking tasks for {fid} from {task_factory.unit_id}", file=sys.stderr)
                 task_factory = f
-        print(f"Step {self.step}: 4.1.4 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.4 {self.factory_icers}", file=sys.stderr)
 
         # if you are a homer, keep your factory!
         if unit.unit_id in self.factory_homers.values():
             for fid, f in factories.items():
                 if self.factory_homers[fid] == unit.unit_id:
                     task_factory = f
-        print(f"Step {self.step}: 4.1.5 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.5 {self.factory_icers}", file=sys.stderr)
 
         if unit.unit_id in self.factory_icers.values():
             for fid, f in factories.items():
                 if self.factory_icers[fid] == unit.unit_id:
                     task_factory = f
 
-        print(f"Step {self.step}: 4.1.6 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.6 {self.factory_icers}", file=sys.stderr)
 
 
         q_builder = QueueBuilder(self, unit, task_factory, self.board)
 
-        print(f"Step {self.step}: 4.1.7 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.7 {self.factory_icers}", file=sys.stderr)
 
-        if state == "attacking":
-            need_recharge, path_home, cost_home = q_builder.check_need_recharge(factory=closest_factory)
-        else:
-            need_recharge, path_home, cost_home = q_builder.check_need_recharge()
+        need_recharge, path_home, cost_home = q_builder.check_need_recharge(factory=closest_factory)
         self.path_home[unit.unit_id] = path_home
         self.cost_home[unit.unit_id] = cost_home
         if state == "attacking" and need_recharge and is_light:
@@ -1143,7 +1140,7 @@ class Agent():
             self.remove_old_next_pos_from_occ_next(unit)
             self.update_queues(unit, queue)
 
-        print(f"Step {self.step}: 4.1.8 {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1.8 {self.factory_icers}", file=sys.stderr)
 
 
 
@@ -1158,24 +1155,46 @@ class Agent():
 
         # make sure closest factory is not about to run dry, save it if you have ice
         # home_pref=False results in closest_factory
-        transferable, transfer_direction, trans_pos = q_builder.transfer_ready(home_pref=False)
+        transferable, transfer_direction, trans_pos = q_builder.transfer_ready(home_pref=closest_factory)
         ice_cargo = unit.cargo.ice
         not_already_transfering = state != "transferring"
-        if closest_factory.cargo.water < 50 and transferable and not_already_transfering and not need_recharge and ice_cargo > 50:
-            state = "transferring"
+        if closest_factory.cargo.water < 50 and ice_cargo > 50:
+            self.unit_states[unit.unit_id] = "transferring"
             q_builder = QueueBuilder(self, unit, closest_factory, self.board)
             not_a_homer = unit.unit_id not in self.factory_homers.values()
             if not_a_homer:
                 q_builder.clear_mining_dibs()
             q_builder.clear_lichen_dibs()
             q_builder.clear_previous_task()
-            queue, cost = q_builder.get_transfer_queue(transfer_direction, home_pref=True)
-            # print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}", file=sys.stderr)
-            self.remove_task_from_factory(unit)
-            self.remove_old_next_pos_from_occ_next(unit)
-            self.update_queues(unit, queue)
 
-        print(f"Step {self.step}: 4.1.9 {self.factory_icers}", file=sys.stderr)
+            closest_tile = closest_factory_tile(closest_factory.pos, unit.pos, [])
+            if on_tile(unit.pos, closest_tile) and can_stay(unit.pos, list(self.occupied_next)):
+                queue = [unit.transfer(0, 0, unit.cargo.ice)]
+                print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}, queue: {queue}", file=sys.stderr)
+                self.remove_task_from_factory(unit)
+                self.remove_old_next_pos_from_occ_next(unit)
+                self.update_queues(unit, queue)
+
+            elif on_tile(unit.pos, closest_tile) and not can_stay(unit.pos, list(self.occupied_next)):
+                direciton = move_toward(unit.pos, closest_factory.pos, list(self.occupied_next))
+                queue = [unit.move(direciton)]
+                print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}, queue: {queue}", file=sys.stderr)
+                self.remove_task_from_factory(unit)
+                self.remove_old_next_pos_from_occ_next(unit)
+                self.update_queues(unit, queue)
+
+            elif not_already_transfering and not need_recharge:
+                path = q_builder.get_path_positions(unit.pos, closest_tile)
+                if not path or len(path) <= 1:
+                    queue = q_builder.build_waiting_queue(length=14)
+                else:
+                    queue = q_builder.get_path_moves(path)
+                print(f"Step {self.step}: {unit.unit_id} interrupting queue to transfer water to {task_factory.pos}, queue: {queue}", file=sys.stderr)
+                self.remove_task_from_factory(unit)
+                self.remove_old_next_pos_from_occ_next(unit)
+                self.update_queues(unit, queue)
+
+        # print(f"Step {self.step}: 4.1.9 {self.factory_icers}", file=sys.stderr)
 
         # Check for evasions now that we have come up with our final queue and any interrupts
         evasion_queue = evasion_check(self, unit, task_factory, opp_units, self.board)
@@ -1186,13 +1205,13 @@ class Agent():
             return
 
         else:  # if you don't need to recharge
-            print(f"Step {self.step}: 4.1.10 {self.factory_icers}", file=sys.stderr)
+            # print(f"Step {self.step}: 4.1.10 {self.factory_icers}", file=sys.stderr)
 
             # if you don't have a queue, build one
             if len(self.action_queue[unit.unit_id]) == 0 or state == "waiting" or state == "solar panel" or state == "slow charging":
                 queue = self.mining_decision(task_factory, q_builder, light=is_light)  # try to get a new queue
 
-                print(f"Step {self.step}: 4.1.11 {self.factory_icers}", file=sys.stderr)
+                # print(f"Step {self.step}: 4.1.11 {self.factory_icers}", file=sys.stderr)
                 # if you were waiting before and you're waiting now, and you have a queue, just keep waiting
                 was_waiting = state == "waiting"  # was waiting to start the step
                 is_waiting = self.unit_states[unit.unit_id] == "waiting"  # still waiting after decision tree
@@ -1236,7 +1255,7 @@ class Agent():
         self.step = game_state.real_env_steps
         # if self.step > 15:
         #     print('f')
-        print(f"Step {self.step}: 0 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 0 in Act: {self.factory_icers}", file=sys.stderr)
 
         factories = game_state.factories[self.player]
         opp_factories = game_state.factories[self.opp_player]
@@ -1250,7 +1269,7 @@ class Agent():
         self.my_factories = factories
         self.opp_factories = opp_factories
 
-        print(f"Step {self.step}: First in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: First in Act: {self.factory_icers}", file=sys.stderr)
 
         # functions that need to be called on each step, mainly to clean the slate from the last step
         self.new_queue = dict()  # Clear out the new queue from last step
@@ -1261,7 +1280,7 @@ class Agent():
         self.helper_treated = set()  # Clear out the helper treated set
         self.set_factory_charge_level()  # Set the charge level of each factory
 
-        print(f"Step {self.step}: Second in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: Second in Act: {self.factory_icers}", file=sys.stderr)
         # Factory updates
         self.factory_types = dict()  # Clear out the factory types from last step
         self.factory_needs = dict()  # Clear out the factory needs from last step
@@ -1295,64 +1314,64 @@ class Agent():
             # then update the factory's needs
             self.define_factory_needs(factory)
 
-        print(f"Step {self.step}: Third in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: Third in Act: {self.factory_icers}", file=sys.stderr)
 
         # Unit Actions
         heavies, lights, helpers, adjacents, homers, icers, heavy_attackers, light_attackers = self.split_heavies_and_lights(units)
-        print(f"Step {self.step}: Fourth in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: Fourth in Act: {self.factory_icers}", file=sys.stderr)
         # print(f"Step {self.step}: icers: {[u.unit_id for u in icers]}, factory_icers: {self.factory_icers}, homer: {self.factory_homers}", file=sys.stderr)
         self.start_icers = icers
         for unit in homers:
             self.decision_tree(unit, factories, opp_units)
 
-        print(f"Step {self.step}: 4.1 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.1 in Act: {self.factory_icers}", file=sys.stderr)
 
         for unit in icers:
             self.decision_tree(unit, factories, opp_units)
 
-        print(f"Step {self.step}: 4.2 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.2 in Act: {self.factory_icers}", file=sys.stderr)
 
         # first get actions for heavies that were previously mining adjacent
         for unit in adjacents:
             self.decision_tree(unit, factories, opp_units)
             self.mining_adjacent.add(unit.unit_id)
 
-        print(f"Step {self.step}: 4.3 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.3 in Act: {self.factory_icers}", file=sys.stderr)
 
         # first get actions for lights that were previously helping
         for unit in helpers:
             self.decision_tree(unit, factories, opp_units)
             self.helper_treated.add(unit.unit_id)
 
-        print(f"Step {self.step}: 4.4 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.4 in Act: {self.factory_icers}", file=sys.stderr)
 
         # then get actions for heavies that weren't mining adjacent
         for unit in heavies:
             if unit.unit_id not in self.mining_adjacent:
                 self.decision_tree(unit, factories, opp_units)
 
-        print(f"Step {self.step}: 4.5 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.5 in Act: {self.factory_icers}", file=sys.stderr)
 
         for unit in heavy_attackers:
             self.decision_tree(unit, factories, opp_units)
 
-        print(f"Step {self.step}: 4.6 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.6 in Act: {self.factory_icers}", file=sys.stderr)
 
         # then get actions for lights that weren't helping
         for unit in lights:
             if unit.unit_id not in self.helper_treated:
                 self.decision_tree(unit, factories, opp_units)
 
-        print(f"Step {self.step}: 4.7 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.7 in Act: {self.factory_icers}", file=sys.stderr)
 
         remaining_light_attackers = self.assign_tasks_to_attackers(light_attackers, "LIGHT")
 
-        print(f"Step {self.step}: 4.8 in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: 4.8 in Act: {self.factory_icers}", file=sys.stderr)
 
         for unit in remaining_light_attackers:
             self.decision_tree(unit, factories, opp_units)
 
-        print(f"Step {self.step}: Fifth in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: Fifth in Act: {self.factory_icers}", file=sys.stderr)
         # FACTORIES
         for fid, factory in factories.items():
             if self.step == 1:
@@ -1410,7 +1429,7 @@ class Agent():
 
         # Finalize the action queue and submit it
         finalized_actions = self.finalize_new_queue()
-        print(f"Step {self.step}: Sixth in Act: {self.factory_icers}", file=sys.stderr)
+        # print(f"Step {self.step}: Sixth in Act: {self.factory_icers}", file=sys.stderr)
         # profiler.disable()
         # profiler.dump_stats('profile.txt')
         return finalized_actions
