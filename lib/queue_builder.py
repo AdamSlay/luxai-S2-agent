@@ -143,6 +143,8 @@ class QueueBuilder:
 
         if digs <= 0:
             return None  # this task is not feasible for this unit at this time
+        if not not_a_homer and not mining_adjacent and digs > 20:
+            digs = 20
 
         queue.append(self.unit.dig(n=digs))
 
@@ -159,9 +161,10 @@ class QueueBuilder:
         self.clear_lichen_dibs()
         self.clear_previous_task()
         self.clear_aggro_dibs()
+        endgame = self.agent.step > 700
 
         closest_factory = get_closest_factory(self.agent.my_factories, self.unit.pos)
-        if self.unit.unit_type == "HEAVY":
+        if self.unit.unit_type == "HEAVY" or endgame:
             target_factory = self.optimal_recharge_factory()
             if target_factory is None:
                 target_factory = self.target_factory
@@ -183,11 +186,11 @@ class QueueBuilder:
         dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 20
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
-        if self.agent.step > 850:
-            dig_allowance = 1000 if self.unit.unit_type == "HEAVY" else 50
-        if self.agent.step > 940:
-            dig_allowance = 200 if self.unit.unit_type == "HEAVY" else 10
-        if self.agent.step > 970:
+        if self.agent.step > 800:
+            dig_allowance = 2000 if self.unit.unit_type == "HEAVY" else 50
+        # if self.agent.step > 940:
+        #     dig_allowance = 200 if self.unit.unit_type == "HEAVY" else 10
+        if self.agent.step > 950:
             dig_allowance = 60 if self.unit.unit_type == "HEAVY" else 5
             reserve_power = 0
         max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
@@ -223,7 +226,6 @@ class QueueBuilder:
         cost_from_lichen = 0
         return_path = []
         cost_to_lichen = self.get_path_cost(path_to_lichen)
-        endgame = self.agent.step > 800
         if not endgame and self.unit.unit_type == "HEAVY":
             # first try the target factory
             path_from_lichen = self.get_path_positions(lichen_tile, target_factory.pos)
@@ -459,27 +461,35 @@ class QueueBuilder:
             else self.agent.factory_low_charge_heavy[target_factory.unit_id]
 
         a_homer = self.unit.unit_id in self.agent.factory_homers.values()
+        an_icer = self.unit.unit_id in self.agent.factory_icers.values()
         a_helper = self.unit.unit_id in self.agent.last_state.keys() and \
                        self.agent.last_state[self.unit.unit_id] == "helping"
 
         self.agent.unit_states[self.unit.unit_id] = "recharging"
-        if not a_homer:
+        if not a_homer and not an_icer:
             self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
         self.clear_aggro_dibs()
 
         if factory_low and not a_homer and not a_helper and not in_danger:
-            if self.unit.unit_type == "HEAVY":
+            if self.unit.unit_type == "HEAVY" and not an_icer:
                 queue = self.solar_panel_queue(target_factory)
                 if queue is not None:
                     return queue
+            if an_icer:
+                queue = self.build_waiting_queue(length=111)
+                return queue
             queue = self.build_waiting_queue(length=11)
             return queue
 
+        elif self.unit.unit_type == "HEAVY" and not a_homer and not an_icer and not in_danger and factory.power < 1200:
+            queue = self.build_waiting_queue(length=12)
+            return queue
+        homer_or_icer = a_homer or an_icer
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
         return_tile = closest_factory_tile(target_factory.pos, self.unit.pos, heavies)
-        pickup_amt = self.get_pickup_amt(target_factory, homer=a_homer, helper=a_helper)
+        pickup_amt = self.get_pickup_amt(target_factory, homer=homer_or_icer, helper=a_helper)
 
         occupied_next = self.agent.occupied_next.copy()
         occupied_next.add((target_factory.pos[0], target_factory.pos[1]))
@@ -557,10 +567,22 @@ class QueueBuilder:
 
         queue = []
         if len(path_home) > 1:
+            # if you're not a homer, add variable waits to avoid all units charging at once
+            is_heavy = self.unit.unit_type == "HEAVY"
+            able_to_stay = can_stay(self.unit.pos, self.agent.occupied_next)
+            if not a_homer and not an_icer and is_heavy and able_to_stay:
+                id_digit = int(self.unit.unit_id[-1])
+                step_digit = self.agent.step % 10
+                if id_digit != step_digit:
+                    # add waits until it's your turn to charge
+                    waits = step_digit - id_digit if step_digit > id_digit else id_digit - step_digit
+                    queue.append(self.unit.move(0, n=waits))
+
             moves = self.get_path_moves(path_home)
-            queue = moves
+            queue.extend(moves)
+
         elif not can_stay(self.unit.pos, self.agent.occupied_next):
-            queue = self.build_waiting_queue(length=5)
+            queue = self.build_waiting_queue(length=8)
             return queue
 
         # pick up power once you get home
@@ -736,7 +758,9 @@ class QueueBuilder:
 
     def build_waiting_queue(self, length=50) -> list or None:
         self.agent.unit_states[self.unit.unit_id] = "waiting"
-        self.clear_mining_dibs()
+        a_homer = self.unit.unit_id in self.agent.factory_homers.values()
+        if not a_homer:
+            self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
 
@@ -752,10 +776,10 @@ class QueueBuilder:
         if can_stay(self.unit.pos, occupied_or_resources):
             queue = [self.unit.move(0, n=length)]
         else:
-            direction = move_toward(self.unit.pos, self.target_factory.pos, occupied_or_resources)
+            direction = move_toward(self.unit.pos, self.target_factory.pos, list(self.agent.occupied_next))
             # print(f"Step {self.agent.step}: {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}",
             #       file=sys.stderr)
-            queue = [self.unit.move(direction), self.unit.move(0, n=length)]
+            queue = [self.unit.move(direction), self.unit.move(0, n=4)]
         return queue
 
     def build_evasion_dance(self, avoid_positions, cost_home, opp_unit=None):

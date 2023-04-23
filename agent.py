@@ -77,6 +77,7 @@ class Agent():
         self.factory_tasks_light = dict()  # {fid: {unit_id :"task"}}  --> what I've got
         self.factory_tasks_heavy = dict()  # {fid: {unit_id :"task"}}  --> what I've got
         self.factory_homers = dict()  # {fid: unit_id}
+        self.factory_icers = dict()  # {fid: unit_id}
 
         # dibs
         self.light_mining_dibs = dict()  # {unit_id: pos}
@@ -121,9 +122,9 @@ class Agent():
             elif factory.power >= 500 and self.factory_low_charge_light[fid] is True:
                 self.factory_low_charge_light[fid] = False
             # HEAVY
-            if factory.power < 600 and self.factory_low_charge_heavy[fid] is False:
+            if factory.power < 800 and self.factory_low_charge_heavy[fid] is False:
                 self.factory_low_charge_heavy[fid] = True
-            elif factory.power >= 800 and self.factory_low_charge_heavy[fid] is True:
+            elif factory.power >= 1000 and self.factory_low_charge_heavy[fid] is True:
                 self.factory_low_charge_heavy[fid] = False
 
     def set_ore_paths(self):
@@ -289,6 +290,12 @@ class Agent():
                 new_factory_homers[fid] = uid
         self.factory_homers = new_factory_homers
 
+        new_factory_icers = dict()
+        for fid, uid in self.factory_icers.items():
+            if uid in self.my_units.keys() and fid in self.my_factories.keys():
+                new_factory_icers[fid] = uid
+        self.factory_icers = new_factory_icers
+
     def avoid_collisions(self, unit, state):
         if unit.unit_id in self.action_queue.keys() and state != "low battery":
             queue = self.action_queue[unit.unit_id]
@@ -377,6 +384,8 @@ class Agent():
         remaining_attackers = []
 
         for factory_id in sorted_factories:
+            if factory_id not in self.my_factories.keys():
+                continue
             factory_position = self.my_factories[factory_id].pos
 
             # Sort the attackers based on their distance to the current factory
@@ -384,17 +393,17 @@ class Agent():
 
             for attacker in sorted_attackers:
                 # Check if the attacker has not been assigned a task yet
-                if attacker['id'] not in assigned_attackers:
+                if attacker.unit_id not in assigned_attackers:
                     # Assign the task to the attacker
                     self.decision_tree(attacker, self.my_factories, self.opp_units, self.my_factories[factory_id])
                     # Add the attacker's ID to the assigned_attackers set
-                    assigned_attackers.add(attacker['id'])
+                    assigned_attackers.add(attacker.unit_id)
                     # Break out of the inner loop to avoid assigning more tasks to the same attacker
                     break
 
         # Populate the remaining_attackers list with attackers that were not assigned tasks
         for attacker in attackers:
-            if attacker['id'] not in assigned_attackers:
+            if attacker.unit_id not in assigned_attackers:
                 remaining_attackers.append(attacker)
 
         return remaining_attackers
@@ -430,7 +439,7 @@ class Agent():
     def split_heavies_and_lights(self, units):
         helpers, adjacents = [], []
         heavies, lights = [], []
-        homers = []
+        homers, icers = [], []
         heavy_attackers, light_attackers = [], []
         for uid, u in units.items():
 
@@ -440,6 +449,10 @@ class Agent():
 
             if u.unit_id in self.factory_homers.values():
                 homers.append(u)
+                continue
+
+            if u.unit_id in self.factory_icers.values():
+                icers.append(u)
                 continue
 
             if uid in self.last_state.keys() and self.last_state[uid] == "attacking":
@@ -465,7 +478,7 @@ class Agent():
 
         self.my_heavy_units = heavies
         self.my_light_units = lights
-        return heavies, lights, helpers, adjacents, homers, heavy_attackers, light_attackers
+        return heavies, lights, helpers, adjacents, homers, icers, heavy_attackers, light_attackers
 
     def set_factory_type(self, factory):
         fid = factory.unit_id
@@ -506,6 +519,8 @@ class Agent():
             self.factory_tasks_heavy[fid] = dict()
         if fid not in self.factory_homers.keys():
             self.factory_homers[fid] = ''
+        if fid not in self.factory_icers.keys():
+            self.factory_icers[fid] = ''
 
         number_of_ice = self.factory_resources[fid][0]
         number_of_ore = self.factory_resources[fid][1]
@@ -551,19 +566,20 @@ class Agent():
                         # if not, then I need to excavate a clearing path
                         [light_todo.append("clearing path") for _ in range(excavators_needed)]
 
-                if needs_excavation or zone_cost > 0 or self.step > 850:
+                if needs_excavation or zone_cost > 0:
                     if zone_cost > 0:
                         excavators_needed = ceil(zone_cost / 20)
                     else:
                         excavators_needed = ceil(free_spaces_wanted - free_spaces_actual)
+                    if self.step > 850:
+                        excavators_needed = ceil(excavators_needed / 2)
                     excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                     # if not, then I need to excavate edge of lichen
                     [light_todo.append("rubble") for _ in range(excavators_needed)]
-                non_rubble =[]
 
-
+                non_rubble = []
                 # if I have room to grow lichen, do I have enough water to grow lichen?
-                if factory.cargo.water < 400 and self.step > 150:
+                if factory.cargo.water < 400 and 150 < self.step < 850:
                     ice_miners = number_of_ice if number_of_ice <= 8 else 8
                     # # if not, then I need to mine ice
                     [light_todo.append("ice") for _ in range(2)]
@@ -574,10 +590,10 @@ class Agent():
                 dibbed.extend(list(self.heavy_mining_dibs.values()))
                 opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
                 if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 30:
-                    [non_rubble.append("lichen") for _ in range(2)]
+                    [non_rubble.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
-                if factory.cargo.metal < 100 and 100 < self.step < 900:
+                if factory.cargo.metal < 200 and 100 < self.step < 850:
                     ore_miners = number_of_ore if number_of_ore <= 10 else 10
                     # # if not, then I need to mine ore
                     [light_todo.append("ore") for _ in range(2)]
@@ -596,12 +612,12 @@ class Agent():
                 if cost_to_clearing > 0:
                     heavy_todo.append("clearing path")
 
-            if len(self.my_heavy_units) < len(self.my_factories) * 2 and factory.cargo.ore < 200 and self.step < 850:
+            if factory.cargo.ore < 200 and self.step < 850:
                 # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
             if number_of_ice > 1:
-                heavy_todo.append("ice")
+                heavy_todo.append("icer")
 
             # are you dangerously low on water?
             if factory.cargo.water < 150 and number_of_ice > 2:
@@ -689,11 +705,15 @@ class Agent():
                 return
         if factory.cargo.water > 50 and 100 < game_state.real_env_steps < 750:
             power = factory.power
-            if power > 2000:
-                if game_state.real_env_steps % 4 == 0:
+            if power > 2500:
+                if game_state.real_env_steps % 4 == 0 and lichen_count > 0:
                     queue = factory.water()
                     self.update_queues(factory, queue)
                     return
+            elif 2000 < power < 2500 and lichen_count < 30:
+                queue = factory.water()
+                self.update_queues(factory, queue)
+                return
             elif homer_id and homer_state == "mining adjacent" and self.step % 8 != 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
@@ -834,6 +854,14 @@ class Agent():
         else:
             return q_builder.build_mining_queue("ice")
 
+    def icer_task_assignment(self, q_builder, _task, task_factory):
+        enough_water = task_factory.cargo.water >= 200
+        closest_ore = closest_resource_tile('ore', task_factory.pos, [], self.board)
+        if self.step < 800 and enough_water and distance_to(task_factory.pos, closest_ore) < 15:
+            return q_builder.build_mining_queue("ore")
+        else:
+            return q_builder.build_mining_queue("ice")
+
     def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True, ore_path_ok=True, clearing_path_ok=True, rubble_ok=True):
         if light:
             factory_needs = self.factory_needs_light
@@ -853,8 +881,8 @@ class Agent():
         if unit.unit_id in self.factory_homers.values():
             _task = "homer"
 
-        # if unit.unit_id in self.homer_helpers.keys():
-        #     _task = "helper"
+        elif unit.unit_id in self.factory_icers.values():
+            _task = "icer"
 
         elif unit.unit_id in self.last_state.keys() and self.last_state[unit.unit_id] == "attacking" and lichen_ok:
             attacking = True
@@ -918,6 +946,7 @@ class Agent():
                 return queue
 
         homer = ["homer"]
+        icer = ["icer"]
         helping = ["helper"]
         resources = ["rubble", "ice", "ore"]
         pathing = ["ore path", "clearing path"]
@@ -929,6 +958,13 @@ class Agent():
             queue = self.homer_task_assignment(q_builder, _task, task_factory)
             self.last_state[unit.unit_id] = "homer"
             self.factory_homers[task_factory.unit_id] = unit.unit_id
+            return queue
+
+        # Icer tasks
+        if first_task_word in icer:
+            queue = self.icer_task_assignment(q_builder, _task, task_factory)
+            self.last_state[unit.unit_id] = "icer"
+            self.factory_icers[task_factory.unit_id] = unit.unit_id
             return queue
 
         # Mining tasks
@@ -1029,6 +1065,11 @@ class Agent():
             for fid, f in factories.items():
                 if self.factory_homers[fid] == unit.unit_id:
                     task_factory = f
+        if unit.unit_id in self.factory_icers.values():
+            for fid, f in factories.items():
+                if self.factory_icers[fid] == unit.unit_id:
+                    task_factory = f
+
 
         q_builder = QueueBuilder(self, unit, task_factory, self.board)
 
@@ -1063,7 +1104,8 @@ class Agent():
             state = "transferring"
             q_builder = QueueBuilder(self, unit, closest_factory, self.board)
             not_a_homer = unit.unit_id not in self.factory_homers.values()
-            if not_a_homer:
+            not_an_icer = unit.unit_id not in self.factory_icers.values()
+            if not_a_homer and not_an_icer:
                 q_builder.clear_mining_dibs()
             q_builder.clear_lichen_dibs()
             q_builder.clear_previous_task()
@@ -1181,9 +1223,12 @@ class Agent():
             self.define_factory_needs(factory)
 
         # Unit Actions
-        heavies, lights, helpers, adjacents, homers, heavy_attackers, light_attackers = self.split_heavies_and_lights(units)
+        heavies, lights, helpers, adjacents, homers, icers, heavy_attackers, light_attackers = self.split_heavies_and_lights(units)
 
         for unit in homers:
+            self.decision_tree(unit, factories, opp_units)
+
+        for unit in icers:
             self.decision_tree(unit, factories, opp_units)
 
         # first get actions for heavies that were previously mining adjacent
@@ -1209,9 +1254,9 @@ class Agent():
             if unit.unit_id not in self.helper_treated:
                 self.decision_tree(unit, factories, opp_units)
 
-        # remaining_light_attackers = self.assign_tasks_to_attackers(light_attackers, "LIGHT")
+        remaining_light_attackers = self.assign_tasks_to_attackers(light_attackers, "LIGHT")
 
-        for unit in light_attackers:
+        for unit in remaining_light_attackers:
             self.decision_tree(unit, factories, opp_units)
 
         # FACTORIES

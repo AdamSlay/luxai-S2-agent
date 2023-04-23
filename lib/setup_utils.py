@@ -20,9 +20,9 @@ def mask_resource_near_factories(resource_map, factories, n=2):
 
 def score_tile(ice_adj, ore_adj):
     if 1 < ice_adj < 4 and 0 < ore_adj <= 2:
-        return 25
+        return 35
     elif ice_adj == 1 and 0 < ore_adj <= 2:
-        return 20
+        return 30
     elif 1 < ice_adj <= 3 and ore_adj == 0:
         return 15
     elif ice_adj == 1 and ore_adj == 0:
