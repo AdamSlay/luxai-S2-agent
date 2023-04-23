@@ -368,6 +368,37 @@ class Agent():
             if unit_id in units.keys():
                 del self.factory_tasks_heavy[fid][unit_id]
 
+    def assign_tasks_to_attackers(self, attackers, unit_type):
+        factory_needs = self.factory_needs_light if unit_type == "LIGHT" else self.factory_needs_heavy
+        # Sort the factories based on the number of tasks they have
+        sorted_factories = sorted(factory_needs, key=lambda factory_id: len(factory_needs[factory_id]), reverse=True)
+
+        assigned_attackers = set()
+        remaining_attackers = []
+
+        for factory_id in sorted_factories:
+            factory_position = self.my_factories[factory_id].pos
+
+            # Sort the attackers based on their distance to the current factory
+            sorted_attackers = sorted(attackers, key=lambda unit: distance_to(factory_position, unit.pos))
+
+            for attacker in sorted_attackers:
+                # Check if the attacker has not been assigned a task yet
+                if attacker['id'] not in assigned_attackers:
+                    # Assign the task to the attacker
+                    self.decision_tree(attacker, self.my_factories, self.opp_units, self.my_factories[factory_id])
+                    # Add the attacker's ID to the assigned_attackers set
+                    assigned_attackers.add(attacker['id'])
+                    # Break out of the inner loop to avoid assigning more tasks to the same attacker
+                    break
+
+        # Populate the remaining_attackers list with attackers that were not assigned tasks
+        for attacker in attackers:
+            if attacker['id'] not in assigned_attackers:
+                remaining_attackers.append(attacker)
+
+        return remaining_attackers
+
     def update_queues(self, unit, queue, new_queue=True):
         # first remove the old next position from occupied_next if it exists
         self.remove_old_next_pos_from_occ_next(unit)
@@ -400,7 +431,7 @@ class Agent():
         helpers, adjacents = [], []
         heavies, lights = [], []
         homers = []
-        attackers = []
+        heavy_attackers, light_attackers = [], []
         for uid, u in units.items():
 
             # this check should go in some sort of unit setup function
@@ -409,25 +440,32 @@ class Agent():
 
             if u.unit_id in self.factory_homers.values():
                 homers.append(u)
-            #
-            # if uid in self.last_state.keys() and self.last_state[uid] == "attacking":
-            #     attackers.append(u)
-            #
-            elif u.unit_type == "HEAVY":
+                continue
+
+            if uid in self.last_state.keys() and self.last_state[uid] == "attacking":
+                if u.unit_type == "HEAVY":
+                    heavy_attackers.append(u)
+                else:
+                    light_attackers.append(u)
+                continue
+
+            if u.unit_type == "HEAVY":
                 if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
                     adjacents.append(u)
                 else:
                     heavies.append(u)
+                continue
 
-            elif u.unit_type == "LIGHT":
+            if u.unit_type == "LIGHT":
                 if uid in self.unit_states.keys() and self.unit_states[uid] == "helping":
                     helpers.append(u)
                 else:
                     lights.append(u)
+                continue
 
         self.my_heavy_units = heavies
         self.my_light_units = lights
-        return heavies, lights, helpers, adjacents, homers
+        return heavies, lights, helpers, adjacents, homers, heavy_attackers, light_attackers
 
     def set_factory_type(self, factory):
         fid = factory.unit_id
@@ -490,13 +528,6 @@ class Agent():
                     if uid in self.unit_states.keys() and self.unit_states[uid] == "mining adjacent":
                         light_todo.append(f"helper:{uid}")
 
-                max_excavators = 8
-                cost_to_ore = self.ore_path_costs[fid]
-                if cost_to_ore > 0:
-                    excavators_needed = ceil(cost_to_ore / 20)
-                    excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
-                    # if not, then I need to excavate a path to the nearest ore
-                    [light_todo.append("ore path") for _ in range(excavators_needed)]
 
                 # do I have room to grow lichen?
                 free_spaces_wanted = 10
@@ -506,25 +537,31 @@ class Agent():
                 primary_zone = get_orthogonal_positions(factory.pos, 2, self.my_factory_tiles, self.board)
                 zone_cost = get_total_rubble(self.board, primary_zone)
                 cost_to_clearing = self.clearing_path_costs[fid]
-                if (needs_excavation or zone_cost > 0) and cost_to_ore == 0:
-                    if zone_cost == 0:
-                        # check to see if clearing a path is necessary
-                        if cost_to_clearing > 0:
-                            excavators_needed = ceil(cost_to_clearing / 20)
-                            excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
-                            # if not, then I need to excavate a clearing path
-                            [light_todo.append("clearing path") for _ in range(excavators_needed)]
-                        else:
-                            excavators_needed = ceil(free_spaces_wanted - free_spaces_actual)
-                            excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
-                            # if not, then I need to excavate edge of lichen
-                            [light_todo.append("rubble") for _ in range(excavators_needed)]
-                    else:
-                        excavators_needed = ceil(zone_cost / 20)
+                cost_to_ore = self.ore_path_costs[fid]
+                max_excavators = 8
+                if self.step < 850:
+                    if 0 < cost_to_ore <= cost_to_clearing or (cost_to_ore > 0 and cost_to_clearing == 0):
+                        excavators_needed = ceil(cost_to_ore / 20)
                         excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
-                        # # if not, then I need to excavate edge of lichen
-                        [light_todo.append("rubble") for _ in range(excavators_needed)]
+                        # if not, then I need to excavate a path to the nearest ore
+                        [light_todo.append("ore path") for _ in range(excavators_needed)]
+                    elif cost_to_clearing > 0:
+                        excavators_needed = ceil(cost_to_clearing / 20)
+                        excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
+                        # if not, then I need to excavate a clearing path
+                        [light_todo.append("clearing path") for _ in range(excavators_needed)]
+
+                if needs_excavation or zone_cost > 0 or self.step > 850:
+                    if zone_cost > 0:
+                        excavators_needed = ceil(zone_cost / 20)
+                    else:
+                        excavators_needed = ceil(free_spaces_wanted - free_spaces_actual)
+                    excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
+                    # if not, then I need to excavate edge of lichen
+                    [light_todo.append("rubble") for _ in range(excavators_needed)]
                 non_rubble =[]
+
+
                 # if I have room to grow lichen, do I have enough water to grow lichen?
                 if factory.cargo.water < 400 and self.step > 150:
                     ice_miners = number_of_ice if number_of_ice <= 8 else 8
@@ -533,14 +570,14 @@ class Agent():
                     [non_rubble.append("ice") for _ in range(ice_miners - 2)]
 
                 # if enemy is growing lichen nearby, attack it
-                dibbed = list(self.light_mining_dibs.values())
-                dibbed.extend(list(self.heavy_mining_dibs.values()))
-                opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-                if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 30:
-                    [non_rubble.append("lichen") for _ in range(4)]
+                # dibbed = list(self.light_mining_dibs.values())
+                # dibbed.extend(list(self.heavy_mining_dibs.values()))
+                # opp_lichen_tile = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
+                # if opp_lichen_tile is not None and distance_to(factory.pos, opp_lichen_tile) <= 30:
+                #     [non_rubble.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
-                if factory.cargo.metal < 100 and self.step > 100:
+                if factory.cargo.metal < 100 and 100 < self.step < 900:
                     ore_miners = number_of_ore if number_of_ore <= 10 else 10
                     # # if not, then I need to mine ore
                     [light_todo.append("ore") for _ in range(2)]
@@ -567,7 +604,7 @@ class Agent():
                 emergency_ice_miners = number_of_ice - 1 if number_of_ice - 1 <= 2 else 2
                 [heavy_todo.append("ice") for _ in range(emergency_ice_miners)]
 
-            if len(self.my_heavy_units) < len(self.my_factories) * 2 and factory.cargo.ore < 200:
+            if len(self.my_heavy_units) < len(self.my_factories) * 2 and factory.cargo.ore < 200 and self.step < 850:
                 # if not, then I need to mine ore
                 heavy_todo.append("ore")
 
@@ -575,24 +612,21 @@ class Agent():
             # if distance_to(factory.pos, closest_enemy.pos) <= 20:
             #     heavy_todo.append("aggro")
 
-            if self.step >= 100:
-                dibbed = list(self.heavy_mining_dibs.values())
-                dibbed.extend(list(self.light_mining_dibs.values()))
-                closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
-                if closest_lichen is not None and distance_to(factory.pos, closest_lichen) <= 35:
-                    # if so, then I need to attack
-                    # [heavy_todo.append("lichen") for _ in range(2)]
-                    heavy_todo.append("lichen")
+            # if self.step >= 100:
+            #     dibbed = list(self.heavy_mining_dibs.values())
+            #     dibbed.extend(list(self.light_mining_dibs.values()))
+            #     closest_lichen = closest_opp_lichen(self.opp_strains, factory.pos, dibbed, self.board)
+            #     if closest_lichen is not None and distance_to(factory.pos, closest_lichen) <= 35:
+            #         # if so, then I need to attack
+            #         # [heavy_todo.append("lichen") for _ in range(2)]
+            #         heavy_todo.append("lichen")
 
             # if I have enough water to grow lichen, am I super clogged up with rubble?
             surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains,
                                                         self.occupied_next, 10)
-            if surrounded and free_spaces < 3:
+            if surrounded and free_spaces < 3 and self.step < 900:
                 # # if so, then I need to excavate either a clearing path or immediate zone
                 heavy_todo.append("rubble")
-
-            # if I have enough ore to build bots, does someone else need my help?
-            # # if so, then I need to go help them
 
             # figure out what tasks are already being done
             light_tasks_being_done = []
@@ -638,8 +672,9 @@ class Agent():
 
         # don't water if you are surrounded, it won't increase your power anyway
         surrounded, free_spaces = lichen_surrounded(self.board, factory.strain_id, self.opp_strains, [], 1)
-        lichen_map = self.board['lichen_strains'][factory.strain_id]
-        lichen_count = np.count_nonzero(lichen_map == 1)
+        lichen_map = self.board['lichen_strains']
+        factory_strain_map = np.argwhere(lichen_map == factory.strain_id)
+        lichen_count = np.count_nonzero(factory_strain_map == 1)
         if surrounded and lichen_count > 0 and self.step < 800:
             return
 
@@ -774,14 +809,17 @@ class Agent():
             path_to_ore = self.ore_paths[task_factory.unit_id]
             closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_ore, self.board)
             if closest_path_pos is None:
-                closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.board)
+                print(f"Step {self.step}: {q_builder.unit.unit_id} is trailblazing an ore path PSYCH",file=sys.stderr)
+                return None
             queue = q_builder.build_mining_queue("ore path", rubble_tile=closest_path_pos)
             return queue
         else:  # it's a clearing path
             path_to_clear = self.clearing_paths[task_factory.unit_id]
+            # print(f"Step {self.step}: {q_builder.unit.unit_id} is trailblazing a clearing path {path_to_clear}")
             closest_path_pos = closest_rubble_tile_in_group(task_factory.pos, dibbed_tiles, path_to_clear, self.board)
             if closest_path_pos is None:
-                closest_path_pos = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.board)
+                print(f"Step {self.step}: {q_builder.unit.unit_id} is trailblazing a clearing path PSYCH",file=sys.stderr)
+                return None
             queue = q_builder.build_mining_queue("clearing path", rubble_tile=closest_path_pos)
             return queue
 
@@ -796,7 +834,7 @@ class Agent():
         else:
             return q_builder.build_mining_queue("ice")
 
-    def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True):
+    def mining_decision(self, task_factory, q_builder, light=False, lichen_ok=True, ore_path_ok=True, clearing_path_ok=True):
         if light:
             factory_needs = self.factory_needs_light
             tasks_being_done = self.factory_tasks_light
@@ -823,20 +861,25 @@ class Agent():
             _task = "lichen"
             self.last_state[unit.unit_id] = "recursing"
 
-        elif task_factory.unit_id in factory_needs.keys() and not lichen_ok:
-            tasks_no_lichen = [task for task in factory_needs[task_factory.unit_id] if task != "lichen"]
-            if len(tasks_no_lichen) > 0:
-                _task = tasks_no_lichen[0]
+        elif task_factory.unit_id in factory_needs.keys():
+            tasks = factory_needs[task_factory.unit_id].copy()
+            if not lichen_ok:
+                tasks = [task for task in tasks if task != "lichen"]
+            if not ore_path_ok:
+                tasks = [task for task in tasks if task != "ore path"]
+            if not clearing_path_ok:
+                tasks = [task for task in tasks if task != "clearing path"]
+            if len(tasks) > 0:
+                _task = tasks[0]
                 self.pop_factory_needs(task_factory, light=light)
             else:
-                print(f"Step {self.step}: {unit.unit_id} has no tasks to do after failing to find lichen",
-                      file=sys.stderr)
+                print(f"Step {self.step}: {unit.unit_id} has no tasks to do after popping factory needs",file=sys.stderr)
                 queue = q_builder.build_waiting_queue(length=1)
                 return queue
-
-        elif task_factory.unit_id in factory_needs.keys() and lichen_ok:
-            _task = factory_needs[task_factory.unit_id][0]
-            self.pop_factory_needs(task_factory, light=light)
+            #
+            # else:
+            #     _task = factory_needs[task_factory.unit_id][0]
+            #     self.pop_factory_needs(task_factory, light=light)
 
         else:
             # check the other factories in order of nearness to this one and see if they need help
@@ -857,13 +900,16 @@ class Agent():
 
                 # if the factory in need has less than 3 workers, do the first task available
                 # the idea is that the first 2 tasks are usually vital to the factory's survival
-                if len(tasks_being_done[task_factory.unit_id]) < 3:
+                if len(tasks_being_done[task_factory.unit_id]) < 5:
                     _task = new_factory_needs[0]
                     self.pop_factory_needs(task_factory, light=light)
                 # if the factory in need has more than 2 workers, do the last task available
                 else:
                     _task = new_factory_needs[-1]
                     self.pop_factory_needs(task_factory, light=light, reverse=True)
+
+            elif lichen_ok:
+                _task = "lichen"
 
             else:
                 # if there are no factories in need, wait
@@ -893,15 +939,19 @@ class Agent():
                 queue = q_builder.build_mining_queue(resource)
 
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
                 self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
         # Pathing tasks
         elif first_task_word in pathing:
             queue = self.trailblazing_task_assignment(q_builder, _task, task_factory, light=light)
+
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
+                if first_task_word == "ore path":
+                    queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=False, clearing_path_ok=clearing_path_ok)
+                else:
+                    queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=False)
             self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -910,7 +960,7 @@ class Agent():
             homer = self.my_units[homer_id]
             queue = q_builder.build_helper_queue(homer)
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
             self.last_state[unit.unit_id] = "helping"
             return queue
 
@@ -918,7 +968,7 @@ class Agent():
         elif first_task_word in aggro:
             queue = q_builder.build_aggro_queue()
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
             self.last_state[unit.unit_id] = "aggro"
             return queue
 
@@ -932,7 +982,7 @@ class Agent():
         if lichen_tile is not None:
             queue = q_builder.build_attack_queue(lichen_tile)
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok)
 
             if queue is not None:
                 self.last_state[unit.unit_id] = "attacking"
@@ -942,7 +992,7 @@ class Agent():
         print(f"Step {self.step}: {unit.unit_id} couldn't find a/an {_task} queue, waiting", file=sys.stderr)
         return q_builder.build_waiting_queue(length=3)
 
-    def decision_tree(self, unit, factories, opp_units):
+    def decision_tree(self, unit, factories, opp_units, factory=None):
         if unit.unit_type == "LIGHT":
             is_light = True
             factory_tasks = self.factory_tasks_light
@@ -972,9 +1022,6 @@ class Agent():
             has_no_heavies = len(self.factory_tasks_heavy[fid].keys()) == 0
             if closest_heavy is not None and on_tile(unit.pos, closest_heavy) and has_no_heavies:
                 task_factory = f
-        for factory_id, unit_tasks in factory_tasks.items():
-            if unit.unit_id in unit_tasks.keys() and factory_id in factories.keys():
-                task_factory = factories[factory_id]
 
         # if you are a homer, keep your factory!
         if unit.unit_id in self.factory_homers.values():
@@ -1124,7 +1171,7 @@ class Agent():
             self.define_factory_needs(factory)
 
         # Unit Actions
-        heavies, lights, helpers, adjacents, homers = self.split_heavies_and_lights(units)
+        heavies, lights, helpers, adjacents, homers, heavy_attackers, light_attackers = self.split_heavies_and_lights(units)
 
         for unit in homers:
             self.decision_tree(unit, factories, opp_units)
@@ -1144,15 +1191,21 @@ class Agent():
             if unit.unit_id not in self.mining_adjacent:
                 self.decision_tree(unit, factories, opp_units)
 
+        for unit in heavy_attackers:
+            self.decision_tree(unit, factories, opp_units)
+
         # then get actions for lights that weren't helping
         for unit in lights:
             if unit.unit_id not in self.helper_treated:
                 self.decision_tree(unit, factories, opp_units)
 
+        for unit in light_attackers:
+            self.decision_tree(unit, factories, opp_units)
+
         # FACTORIES
         for fid, factory in factories.items():
             if self.step == 1:
-                clearing_position = self.find_clearing_position(factory.pos, 8, 15)
+                clearing_position = self.find_clearing_position(factory.pos, 4, 12)
                 if clearing_position is not None:
                     # print(f"Step {self.step}: {factory.unit_id} is clearing {clearing_position}", file=sys.stderr)
                     self.factory_clearing_tiles[factory.unit_id] = clearing_position
