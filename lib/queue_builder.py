@@ -187,7 +187,7 @@ class QueueBuilder:
         dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 20
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
         if self.agent.step > 800:
-            dig_allowance = 2000 if self.unit.unit_type == "HEAVY" else 50
+            dig_allowance = 1500 if self.unit.unit_type == "HEAVY" else 50
         # if self.agent.step > 940:
         #     dig_allowance = 200 if self.unit.unit_type == "HEAVY" else 10
         if self.agent.step > 950:
@@ -373,7 +373,7 @@ class QueueBuilder:
         # # after breaking out of loop, add path from lichen tile to factory
         # if len(path_from_lichen) > 1:
         #     queue.extend(self.get_path_moves(path_from_lichen))
-        factory_tasks_weight_class[target_factory.unit_id][self.unit.unit_id] = "lichen"
+        # factory_tasks_weight_class[target_factory.unit_id][self.unit.unit_id] = "lichen"
         if len(queue) > 20:
             queue = queue[:20]
         return queue
@@ -397,6 +397,8 @@ class QueueBuilder:
     def build_trekking_queue(self, path_positions, max_power=0):
         # get the path_positions for the amount of path that you can afford given your power
         affordable_path = self.get_path_cost(path_positions, max_power=max_power)
+        if not affordable_path:
+            return None
         queue = self.get_path_moves(affordable_path, pauses=5)
         return queue[:20]
 
@@ -748,12 +750,9 @@ class QueueBuilder:
         if self.unit.power - cost_to_target > 200:
             direction = direction_to(closest_tile, factory.pos)
             queue.append(self.unit.transfer(direction, 4, 6, n=charges))
-        else:
-            queue.append(self.unit.move(0, n=23))
+
         if len(queue) == 0:
-            print(f"Step {self.agent.step}: {self.unit.unit_id} is stuck in solar panel queue. queue length is 0",
-                  file=sys.stderr)
-            return None
+            queue = self.build_waiting_queue(length=43)
         return queue[:20]
 
     def build_waiting_queue(self, length=50) -> list or None:

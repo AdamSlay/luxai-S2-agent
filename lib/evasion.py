@@ -98,7 +98,7 @@ def evasion_check(self, unit, target_factory, opp_units, board):
     if danger_close:
         self.unit_states[unit.unit_id] = evasion_state
 
-        print(f"Step {self.step}: {unit.unit_id} is evading DANGER CLOSE", file=sys.stderr)
+        # print(f"Step {self.step}: {unit.unit_id} is evading DANGER CLOSE", file=sys.stderr)
 
         # if you have an action in the queue, get the next position
         if unit.unit_id in self.action_queue.keys() and len(self.action_queue[unit.unit_id]) > 0:
@@ -124,7 +124,7 @@ def evasion_check(self, unit, target_factory, opp_units, board):
 
     # If danger far, try to pause and then continue about your business
     if danger_far:
-        print(f"Step {self.step}: {unit.unit_id} is evading DANGER FAR", file=sys.stderr)
+        # print(f"Step {self.step}: {unit.unit_id} is evading DANGER FAR", file=sys.stderr)
         self.unit_states[unit.unit_id] = evasion_state
 
         # if you're not in the way of your own units, try to pause

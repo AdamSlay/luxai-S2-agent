@@ -528,9 +528,7 @@ class Agent():
         factory_type = self.factory_types[fid]
         factory_state = "basic"  # for now, all factories are basic
 
-        # TODO: make this a switch statement
         if factory_state == "basic":
-            # TODO: make this a function
 
             # figure out all tasks that need to be done
             light_todo = []
@@ -576,6 +574,8 @@ class Agent():
                     excavators_needed = excavators_needed if excavators_needed <= max_excavators else max_excavators
                     # if not, then I need to excavate edge of lichen
                     [light_todo.append("rubble") for _ in range(excavators_needed)]
+                else:
+                    [light_todo.append("rubble") for _ in range(4)]
 
                 non_rubble = []
                 # if I have room to grow lichen, do I have enough water to grow lichen?
@@ -593,7 +593,7 @@ class Agent():
                     [non_rubble.append("lichen") for _ in range(4)]
 
                 # if I have enough water to grow lichen, do I have enough ore to build bots?
-                if factory.cargo.metal < 200 and 100 < self.step < 850:
+                if factory.cargo.metal < 200 and 100 < self.step < 900:
                     ore_miners = number_of_ore if number_of_ore <= 10 else 10
                     # # if not, then I need to mine ore
                     [light_todo.append("ore") for _ in range(2)]
@@ -816,7 +816,10 @@ class Agent():
                 queue = q_builder.build_mining_queue(resource, rubble_tile=lowest_rubble_pos)
             else:
                 close_rubble_tile = closest_rubble_tile(task_factory.pos, dibbed_tiles, self.board)
-                queue = q_builder.build_mining_queue(resource, rubble_tile=close_rubble_tile)
+                if distance_to(task_factory.pos, close_rubble_tile) < 6:
+                    queue = q_builder.build_mining_queue(resource, rubble_tile=close_rubble_tile)
+                else:
+                    queue = q_builder.build_waiting_queue(length=53)
 
         return queue
 
@@ -901,6 +904,19 @@ class Agent():
             if len(tasks) > 0:
                 _task = tasks[0]
                 self.pop_factory_needs(task_factory, light=light)
+
+                # don't leave for lichen if there are few units left at the factory
+                minimum_units = 1 if not light else 5
+                if len(tasks_being_done[task_factory.unit_id]) < minimum_units and _task == "lichen":
+                    print(
+                        f"Step {self.step}: {unit.unit_id} {task_factory.unit_id}, {tasks_being_done[task_factory.unit_id]}",
+                        file=sys.stderr)
+                    if len(tasks) > 1:
+                        _task = tasks[1]
+                        self.pop_factory_needs(task_factory, light=light)
+                    else:
+                        queue = q_builder.build_waiting_queue(length=14)
+                        return queue
             else:
                 print(f"Step {self.step}: {unit.unit_id} has no tasks to do after popping factory needs",file=sys.stderr)
                 queue = q_builder.build_waiting_queue(length=1)
@@ -974,9 +990,8 @@ class Agent():
                 queue = self.rubble_digging_task_assignment(q_builder, resource, task_factory, light=light)
             else:  # it's a resource
                 queue = q_builder.build_mining_queue(resource)
-
             if queue is None:
-                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=lichen_ok, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=False)
+                queue = self.mining_decision(task_factory, q_builder, light=light, lichen_ok=False, ore_path_ok=ore_path_ok, clearing_path_ok=clearing_path_ok, rubble_ok=False)
                 self.last_state[unit.unit_id] = self.unit_states[unit.unit_id]
             return queue
 
@@ -1143,6 +1158,7 @@ class Agent():
                 still_waiting = was_waiting and is_waiting and has_a_queue
                 still_solar_panel = was_solar_panel and is_solar_panel and has_a_queue
                 still_slow_charging = was_slow_charging and is_slow_charging and has_a_queue
+
                 if still_waiting or still_solar_panel or still_slow_charging:
                     # you were already waiting/solar/slow and nothing new came up
                     # so just continue waiting/solar/slow and add your next pos to occupied_next
@@ -1271,9 +1287,17 @@ class Agent():
             f_pos = (factory.pos[0], factory.pos[1])
             if f_pos not in self.occupied_next:
                 if factory.can_build_heavy(game_state) and factory.unit_id in self.factory_needs_heavy:
-                    queue = factory.build_heavy()
-                    self.update_queues(factory, queue)
-                    continue
+                    if self.step < 120:
+                        number_of_heavies = len(self.my_heavy_units)
+                        number_of_factories = len(factories)
+                        if number_of_heavies < number_of_factories:
+                            queue = factory.build_heavy()
+                            self.update_queues(factory, queue)
+                            continue
+                    else:
+                        queue = factory.build_heavy()
+                        self.update_queues(factory, queue)
+                        continue
 
                 elif factory.can_build_light(game_state) and factory.unit_id in self.factory_needs_light:
                     if self.step < 100:
