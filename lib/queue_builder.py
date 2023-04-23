@@ -161,15 +161,10 @@ class QueueBuilder:
         self.clear_lichen_dibs()
         self.clear_previous_task()
         self.clear_aggro_dibs()
-        endgame = self.agent.step > 700
+        endgame = self.agent.step > 500
 
         closest_factory = get_closest_factory(self.agent.my_factories, self.unit.pos)
-        if self.unit.unit_type == "HEAVY" or endgame:
-            target_factory = self.optimal_recharge_factory()
-            if target_factory is None:
-                target_factory = self.target_factory
-        else:
-            target_factory = closest_factory
+        target_factory = closest_factory
 
         enough_power = 2000 if self.unit.unit_type == "HEAVY" else 1000
         target_distance = distance_to(self.unit.pos, target_factory.pos)
@@ -242,7 +237,7 @@ class QueueBuilder:
                     return None
             cost_from_lichen = self.get_path_cost(path_from_lichen)
             return_path = path_from_lichen
-        elif self.unit.unit_type == "LIGHT":
+        else:
             cost_from_lichen = self.agent.cost_home[self.unit.unit_id]
         total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
 
@@ -402,11 +397,13 @@ class QueueBuilder:
         queue = self.get_path_moves(affordable_path, pauses=5)
         return queue[:20]
 
-    def build_aggro_queue(self):
+    def build_aggro_queue(self, factory=None):
         self.agent.unit_states[self.unit.unit_id] = "aggro"
-        self.clear_mining_dibs()
         self.clear_lichen_dibs()
-        self.clear_previous_task()
+        an_icer = self.unit.unit_id in self.agent.factory_icers.values()
+        if not an_icer:
+            self.clear_mining_dibs()
+            self.clear_previous_task()
         self.clear_aggro_dibs()
 
         undibbed_factories = {fid: f for fid, f in self.agent.opp_factories.items() if fid not in self.agent.aggro_dibs.values()}
@@ -414,7 +411,10 @@ class QueueBuilder:
             print(f"Step {self.agent.step}: {self.unit.unit_id} no undibbed factories", file=sys.stderr)
             return None
 
-        undibbed_factory = get_closest_factory(undibbed_factories, self.unit.pos)
+        if factory is None:
+            undibbed_factory = get_closest_factory(undibbed_factories, self.target_factory.pos)
+        else:
+            undibbed_factory = factory
 
         mining_tile = closest_resource_tile("ice", undibbed_factory.pos, [], self.board)
         cardinal_tiles = get_cardinal_tiles(mining_tile)
@@ -425,10 +425,10 @@ class QueueBuilder:
 
         path = self.get_path_positions(self.unit.pos, mining_tile)
         path_back = self.get_path_positions(mining_tile, self.target_factory.pos, occupied=self.agent.opp_factory_tiles)
-        if path is None:
+        if path is None or len(path) == 0:
             print(f"Step {self.agent.step}: {self.unit.unit_id} cant find aggro path to {undibbed_factory.unit_id}", file=sys.stderr)
             return None
-        if path_back is None:
+        if path_back is None or len(path_back) == 0:
             print(f"Step {self.agent.step}: {self.unit.unit_id} cant find aggro path back to {self.target_factory.unit_id}", file=sys.stderr)
             return None
 
@@ -437,7 +437,6 @@ class QueueBuilder:
         reserve_power = 150
         aggro_allowance = 400
         total_cost = path_cost + path_back_cost + aggro_allowance + reserve_power
-        total_cost = total_cost if total_cost > 1000 else 1000
 
         if total_cost >= self.unit.power:
             if total_cost > 2999:
@@ -468,26 +467,30 @@ class QueueBuilder:
                        self.agent.last_state[self.unit.unit_id] == "helping"
 
         self.agent.unit_states[self.unit.unit_id] = "recharging"
+        an_icer = self.unit.unit_id in self.agent.factory_icers.values()
         if not a_homer and not an_icer:
             self.clear_mining_dibs()
+            self.clear_previous_task()
         self.clear_lichen_dibs()
-        self.clear_previous_task()
         self.clear_aggro_dibs()
 
-        if factory_low and not a_homer and not a_helper and not in_danger:
-            if self.unit.unit_type == "HEAVY" and not an_icer:
+
+        if factory_low and not a_homer and not an_icer and not a_helper and not in_danger:
+            if self.unit.unit_type == "HEAVY" and not an_icer and self.unit.power > 1500:
                 queue = self.solar_panel_queue(target_factory)
                 if queue is not None:
                     return queue
-            if an_icer:
-                queue = self.build_waiting_queue(length=111)
-                return queue
             queue = self.build_waiting_queue(length=11)
             return queue
 
-        elif self.unit.unit_type == "HEAVY" and not a_homer and not an_icer and not in_danger and factory.power < 1200:
+        elif self.unit.unit_type == "HEAVY" and not a_homer and not an_icer and not in_danger and target_factory.power < 800:
             queue = self.build_waiting_queue(length=12)
             return queue
+
+        elif self.unit.unit_type == "HEAVY":
+            print(f"Step {self.agent.step}: {self.unit.unit_id} is a homer/icer and building recharge queue for {target_factory.unit_id}"
+                  f"- icers: {self.agent.factory_icers}, homers: {self.agent.factory_homers}", file=sys.stderr)
+
         homer_or_icer = a_homer or an_icer
         heavies = [unit for unit in self.agent.my_heavy_units if unit.unit_id != self.unit.unit_id]
         return_tile = closest_factory_tile(target_factory.pos, self.unit.pos, heavies)
@@ -595,6 +598,8 @@ class QueueBuilder:
             self.agent.unit_states[self.unit.unit_id] = "slow charging"
             pickup_amt = pickup_amt // 10
             if pickup_amt > 0:
+                if pickup_amt > 50:
+                    pickup_amt = 50
                 sequence = [self.unit.pickup(4, pickup_amt), self.unit.move(0)]
                 [queue.extend(sequence) for _ in range(10)]
             else:
@@ -758,10 +763,11 @@ class QueueBuilder:
     def build_waiting_queue(self, length=50) -> list or None:
         self.agent.unit_states[self.unit.unit_id] = "waiting"
         a_homer = self.unit.unit_id in self.agent.factory_homers.values()
-        if not a_homer:
+        an_icer = self.unit.unit_id in self.agent.factory_icers.values()
+        if not a_homer and not an_icer:
             self.clear_mining_dibs()
+            self.clear_previous_task()
         self.clear_lichen_dibs()
-        self.clear_previous_task()
 
         # do not wait on a resource tile
         occupied_or_resources = list(self.agent.occupied_next)
@@ -797,13 +803,19 @@ class QueueBuilder:
                 queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
                 if len(queue) == 0:
                     queue = self.build_recharge_queue()
-                return queue
+                if queue[0][0] != 0:
+                    direction = move_toward(self.unit.pos, self.target_factory.pos, list(self.agent.occupied_next))
+                    queue.insert(0, self.unit.move(direction))
+                return queue[:20]
             elif (light_attacker or heavy_attacker) and distance_to(self.unit.pos, self.target_factory.pos) < 5:
                 self.agent.unit_states[self.unit.unit_id] = "evasion recharge"
                 queue = self.build_recharge_queue(occupied=avoid_positions, in_danger=True)
                 if len(queue) == 0:
                     queue = self.build_recharge_queue()
-                return queue
+                if queue[0][0] != 0:
+                    direction = move_toward(self.unit.pos, self.target_factory.pos, list(self.agent.occupied_next))
+                    queue.insert(0, self.unit.move(direction))
+                return queue[:20]
 
         light_vs_heavy = self.unit.unit_type == "LIGHT" and opp_unit.unit_type == "HEAVY"
         # is_homer = self.agent.all_unit_titles[self.unit.unit_id] == "homer"
