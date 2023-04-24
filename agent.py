@@ -704,7 +704,7 @@ class Agent():
         lichen_map = self.board['lichen_strains']
         factory_strain_map = np.argwhere(lichen_map == factory.strain_id)
         lichen_count = np.count_nonzero(factory_strain_map == 1)
-        if surrounded and lichen_count > 0 and self.step < 700:
+        if surrounded and lichen_count > 1 and self.step < 700:
             return
 
         if factory.cargo.water > 50 and game_state.real_env_steps <= 100:
@@ -739,30 +739,34 @@ class Agent():
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-        elif 750 <= game_state.real_env_steps < 980:
+        if 750 <= game_state.real_env_steps < 980:
             steps_remaining = 1000 - game_state.real_env_steps
             if factory.cargo.water > steps_remaining * 6:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            elif factory.cargo.water > 400:
+            if factory.cargo.water > 400:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            elif factory.cargo.water > 200 and game_state.real_env_steps % 3 != 0:
+            if factory.cargo.water > 200 and game_state.real_env_steps % 3 != 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-            elif factory.cargo.water > 50 and game_state.real_env_steps % 2 == 0:
+            if factory.cargo.water > 100 and game_state.real_env_steps % 2 == 0:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-        elif 980 <= game_state.real_env_steps < 996:
+            if factory.cargo.water > 50 and game_state.real_env_steps % 3 == 0:
+                queue = factory.water()
+                self.update_queues(factory, queue)
+                return
+        if 980 <= game_state.real_env_steps < 996:
             if factory.cargo.water > 50:
                 queue = factory.water()
                 self.update_queues(factory, queue)
                 return
-        elif game_state.real_env_steps >= 996:
+        if game_state.real_env_steps >= 996:
             if factory.cargo.water > 30:
                 queue = factory.water()
                 self.update_queues(factory, queue)
@@ -1382,13 +1386,15 @@ class Agent():
                     if self.factory_needs_light[factory.unit_id] and need_basic_lights:
                         if self.step > 100:
                             number_of_ore = self.factory_resources[fid][1]
-                            if number_of_ore > 0 and self.factory_icers[fid] == '':
-                                continue
-
                             if self.step % 10 == 0:
-                                queue = factory.build_light()
-                                self.update_queues(factory, queue)
-                                continue
+                                if number_of_ore > 0 and self.factory_icers[fid] != '':
+                                    queue = factory.build_light()
+                                    self.update_queues(factory, queue)
+                                    continue
+                                elif number_of_ore == 0:
+                                    queue = factory.build_light()
+                                    self.update_queues(factory, queue)
+                                    continue
                         else:
                             queue = factory.build_light()
                             self.update_queues(factory, queue)
