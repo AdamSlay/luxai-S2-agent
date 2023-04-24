@@ -187,7 +187,7 @@ class QueueBuilder:
         dibs = self.agent.lichen_dibs
         dig_cost = 60 if self.unit.unit_type == "HEAVY" else 5
         dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
-        dig_allowance = 600 if self.unit.unit_type == "HEAVY" else 20
+        dig_allowance = 300 if self.unit.unit_type == "HEAVY" else 20
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
         if self.agent.step > 800:
             dig_allowance = 1500 if self.unit.unit_type == "HEAVY" else 50
@@ -196,7 +196,7 @@ class QueueBuilder:
         if self.agent.step > 950:
             dig_allowance = 60 if self.unit.unit_type == "HEAVY" else 5
             reserve_power = 0
-        max_power = 2980 if self.unit.unit_type == "HEAVY" else 145
+        max_power = 1280 if self.unit.unit_type == "HEAVY" else 145
         power_remaining = self.unit.power
         lichen_amounts = self.board["lichen"]
         position = self.unit.pos
@@ -210,7 +210,7 @@ class QueueBuilder:
 
         # PATHS AND COSTS
         path_to_lichen = self.get_path_positions(position, lichen_tile)
-        if not path_to_lichen and not on_tile(self.unit.pos, lichen_tile):
+        if (not path_to_lichen or len(path_to_lichen) <= 1) and not on_tile(self.unit.pos, lichen_tile):
             # lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, dibbed_tiles, self.board)
             # if lichen_tile is None:
             #     print(f'Step {self.agent.step}: {self.unit.unit_id} is attacking but cant find a lichen tile',
@@ -400,7 +400,7 @@ class QueueBuilder:
     def build_trekking_queue(self, path_positions, max_power=0):
         # get the path_positions for the amount of path that you can afford given your power
         affordable_path = self.get_path_cost(path_positions, max_power=max_power)
-        if not affordable_path:
+        if not affordable_path or len(affordable_path) <= 1:
             return None
         queue = self.get_path_moves(affordable_path, pauses=5)
         return queue[:20]
@@ -417,6 +417,10 @@ class QueueBuilder:
         undibbed_factories = {fid: f for fid, f in self.agent.opp_factories.items() if fid not in self.agent.aggro_dibs.values()}
         if len(undibbed_factories) == 0:
             print(f"Step {self.agent.step}: {self.unit.unit_id} no undibbed factories", file=sys.stderr)
+            lichen_tile = closest_opp_lichen(self.agent.opp_strains, self.unit.pos, [], self.board, priority=False)
+            if lichen_tile is not None:
+                queue = self.build_attack_queue(lichen_tile)
+                return queue
             return None
 
         if factory is None:
@@ -433,10 +437,10 @@ class QueueBuilder:
 
         path = self.get_path_positions(self.unit.pos, mining_tile)
         path_back = self.get_path_positions(mining_tile, self.target_factory.pos, occupied=self.agent.opp_factory_tiles)
-        if path is None or len(path) == 0:
+        if path is None or len(path) <= 1:
             print(f"Step {self.agent.step}: {self.unit.unit_id} cant find aggro path to {undibbed_factory.unit_id}", file=sys.stderr)
             return None
-        if path_back is None or len(path_back) == 0:
+        if path_back is None or len(path_back) <= 1:
             print(f"Step {self.agent.step}: {self.unit.unit_id} cant find aggro path back to {self.target_factory.unit_id}", file=sys.stderr)
             return None
 
@@ -450,7 +454,11 @@ class QueueBuilder:
             if total_cost > 2999:
                 return None
             print(f"Step {self.agent.step}: {self.unit.unit_id} cant afford aggro path to {undibbed_factory.unit_id}, cost: {total_cost}, power: {self.unit.power}", file=sys.stderr)
-            queue = self.build_recharge_queue()
+            closest_factory = get_closest_factory(self.agent.my_factories, self.unit.pos)
+            if distance_to(self.unit.pos, closest_factory.pos) < 6:
+                queue = self.build_recharge_queue()
+            else:
+                queue = self.build_waiting_queue(length=37)
             return queue
 
         self.agent.factory_tasks_heavy[self.target_factory.unit_id][self.unit.unit_id] = "aggro"
