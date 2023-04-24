@@ -9,7 +9,7 @@ from lib.setup_utils import *
 
 def setup(self, step: int, obs, remainingOverageTime: int = 60):
     if step == 0:
-        return dict(faction="TheBuilders", bid=10), 0, None, None
+        return dict(faction="TheBuilders", bid=10), 0, None, None, None
     else:
         game_state = obs_to_game_state(step, self.env_cfg, obs)
         water_left = game_state.teams[self.player].water
@@ -144,5 +144,5 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
                 pass
 
             return dict(spawn=spawn_loc, metal=m,
-                        water=w), factories_to_place, factory_pos, low_rubble_novignette_scores
-        return dict(), 0, None, None
+                        water=w), factories_to_place, factory_pos, low_rubble_novignette_scores, adjacency_score_map[x, y]
+        return dict(), 0, None, None, None
