@@ -153,6 +153,11 @@ class QueueBuilder:
 
         dibs[self.unit.unit_id] = resource_tile
         factory_tasks_weight_class[target_factory.unit_id][self.unit.unit_id] = resource
+        if mining_adjacent:
+            if target_factory.unit_id in self.agent.factory_needs_light.keys():
+                self.agent.factory_needs_light[target_factory.unit_id].insert(0, f"helper:{self.unit.unit_id}")
+            else:
+                self.agent.factory_needs_light[target_factory.unit_id] = [f"helper:{self.unit.unit_id}"]
 
         if len(queue) > 20:
             queue = queue[:20]
@@ -616,7 +621,7 @@ class QueueBuilder:
             queue = queue[:20]
         return queue
 
-    def build_helper_queue(self, homer):
+    def build_helper_queue(self, homer, resource_tile=None):
         self.clear_mining_dibs()
         self.clear_lichen_dibs()
         self.clear_previous_task()
@@ -628,7 +633,9 @@ class QueueBuilder:
         if can_transfer:
             transfer_queue, transfer_queue_cost = self.get_transfer_queue(transfer_direction)
             queue.extend(transfer_queue)
-        target_tile = get_helper_tile(homer.pos, self.target_factory.pos)
+        if resource_tile is None:
+            resource_tile = homer.pos
+        target_tile = get_helper_tile(resource_tile, self.target_factory.pos)
         if not on_tile(trans_pos, target_tile):
             positions_to_target = self.get_path_positions(trans_pos, target_tile)
             if len(positions_to_target) == 0:
@@ -773,7 +780,9 @@ class QueueBuilder:
         self.clear_lichen_dibs()
 
         # do not wait on a resource tile
+        closest_factory = get_closest_factory(self.agent.my_factories, self.unit.pos)
         occupied_or_resources = list(self.agent.occupied_next)
+        occupied_or_resources.append(closest_factory.pos)
         ice = self.board['ice']
         ore = self.board['ore']
         ice_positions = np.column_stack(np.where(ice == 1))
@@ -784,7 +793,9 @@ class QueueBuilder:
         if can_stay(self.unit.pos, occupied_or_resources):
             queue = [self.unit.move(0, n=length)]
         else:
-            direction = move_toward(self.unit.pos, self.target_factory.pos, list(self.agent.occupied_next))
+            occupied_next = list(self.agent.occupied_next)
+            occupied_next.append(closest_factory.pos)
+            direction = move_toward(self.unit.pos, self.target_factory.pos, occupied_next)
             # print(f"Step {self.agent.step}: {self.unit.unit_id} is waiting but can't stay in place, moving in direction {direction}",
             #       file=sys.stderr)
             queue = [self.unit.move(direction), self.unit.move(0, n=4)]
