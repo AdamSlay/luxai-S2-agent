@@ -189,7 +189,7 @@ class QueueBuilder:
         dig_rate = 100 if self.unit.unit_type == "HEAVY" else 10
         dig_allowance = 300 if self.unit.unit_type == "HEAVY" else 20
         reserve_power = self.agent.moderate_reserve_power[self.unit.unit_type]
-        if self.agent.step > 800:
+        if self.agent.step > 800 and distance_to(self.unit.pos, lichen_tile) < 10:
             dig_allowance = 1500 if self.unit.unit_type == "HEAVY" else 50
         # if self.agent.step > 940:
         #     dig_allowance = 200 if self.unit.unit_type == "HEAVY" else 10
@@ -246,7 +246,10 @@ class QueueBuilder:
         #     cost_from_lichen = self.get_path_cost(path_from_lichen)
         #     return_path = path_from_lichen
         # else:
-        cost_from_lichen = self.agent.cost_home[self.unit.unit_id]
+        if self.agent.step < 870:
+            cost_from_lichen = self.agent.cost_home[self.unit.unit_id]
+        else:
+            cost_from_lichen = 0
         total_cost = cost_to_lichen + cost_from_lichen + dig_allowance + reserve_power
 
         # CAN YOU AFFORD IT?
@@ -381,7 +384,6 @@ class QueueBuilder:
             queue = queue[:20]
         return queue
 
-        # TODO: this is the square idea
         # lichen_tiles = np.copy(self.board["lichen_strains"])
         # for pos in dibbed_tiles:
         #     x = int(pos[0])
