@@ -24,11 +24,22 @@ In addition to optimization, successful agents must be capable of analyzing thei
 > If the lichen value is tied or both teams lose all their factories at the same time, then the game ends in a draw.
 
 ## Installation and Usage
+You'll need python 3.10. The project will probably run on later versions of python, but this is what it currently runs on.
+I suggest creating a [virtual environment](https://docs.python.org/3/library/venv.html) and building the project inside of that, so you don't install a bunch of 
+libraries on your machine or potentially mess with your system python installation. 
+Clone the repo and navigate to the project directory. 
+
+Inside the project directory execute the following command to install the project dependencies:
+```bash
+pip install -r requirements.txt
+```
+
 
 Command to run the agent against itself:
 ```bash
 luxai-s2 main.py main.py --out=replay.html
 ```
+
 
 To view the replay, open the html file in a browser.
 
