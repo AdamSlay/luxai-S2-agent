@@ -110,13 +110,21 @@ were completely clear of rubble and giving them a score that increased if there 
 Since every aspect of the game revolved around having water to sustain your factories, I placed a heavy emphasis on placing factories
 directly adjacent to an ice tile. This way each factory could have a robot dedicated to mining ice virtually all the time.
 
+![Factory Placement Gif](gifs/factory_placement.gif)
+
 ### Early Game
 Pathway building, resource collection, and robot deployment were the primary focuses of the early game.
 
+![Early Game Gif](gifs/early_game.gif)
+
 ### Mid Game
 The mid-game was all about resource denial and resource collection. Robots are extremely valuable and must be protected at all costs.
+
+![Mid Game Gif](gifs/mid_game.gif)
 
 ### Late Game
 The late game was all about destroying enemy lichen and growing as much lichen as possible. Robots become expendable at this point as
 you get no bonus points for having robots at the end of the game. The only thing that matters is how much lichen you have vs how much lichen
 your opponent has.
+
+![Late Game Gif](gifs/late_game.gif)
