@@ -1,6 +1,9 @@
 # LUX AI Season 2 Rule-based Agent (top 25 solution)
 This is my agent for the [LuxAI 2023 Kaggle Competition](https://www.kaggle.com/competitions/lux-ai-season-2). 
 The competition spanned several months, and my agent finished in 23rd place of 637 teams (top 4%), reaching a peak of 6th place at the end of the final sprint.
+This was my first time ever competing in any sort of programming competition and my first time building an autonomous *agent* like this. I had never heard of Djikstra's 
+algorithm or GOAP or really anything related to this sort of programming. It just seemed like an interesting challenge, and I'm thankful for the opportunity to have learned
+about some really cool things.
 
 The competition is described as follows from the link embedded above:
 
