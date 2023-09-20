@@ -29,10 +29,48 @@ luxai-s2 main.py main.py --out=replay.html
 
 To view the replay, open the html file in a browser.
 
+## Economy
+The economy of the game focused around the circular concept that you need to spend energy to get energy and without energy you lose. This
+creates quite the strategic problem: do you spend lots of energy to acquire lots of resources to generate lots energy so that 
+you can perform lots of actions **OR** do you perform fewer actions which require less energy and thus less resources? In the 
+end, the most successful agents used *a lot* of energy.
+
+#### Resources
+Around the map, you have light blue tiles that represent **ice** which can be mined and turned into **water** at a factory. The water can then be 
+used to grow **lichen** which generates energy for the factory that "*owns*" the lichen. Robots can syphon energy from their factories, 
+but they must be touching a factory tile to perform the exchange. Navy tiles represent **ore** which can be mined and turned into 
+**metal** at a factory. That metal can be used to build more robots that can go out into the world and do *stuff* for you.
+
+#### Doing Stuff
+The game revolves around building robots to travel from factories to points of interest to perform some action then return back to the 
+factory to refuel on energy and start the cycle over again. Since all actions/movements consume energy and the only way to generate energy is through
+growing lichen and lichen requires water to grow, the single most important resource in the game is **ice**. Therefore, you will see most agents
+build their factories near, or adjacent to, ice deposits to minimize the energy required to grow lichen. 
+
+The most successful agents also spend 
+resources to excavate **rubble** along the most efficient path to various points of interest because moving on top of rubble requires more energy proportional
+to the amount of rubble on the tile. This upfront cost of excavating a path is outweighed by the efficiency of movement along that path for the rest of the game
+**IF** that path ends up being used many times. 
+
+This brings up the importance of **pathfinding**. Sometimes the *cheapest* path from an energy
+perspective isn't necessarily the *shortest* path. So, how do you find the cheapest path? My solution revolves around the [*Djikstra Pathfinding Algorithm*](https://en.wikipedia.org/wiki/Dijkstra's_algorithm).
+Djikstra's algorithm essentially looks at the current position and all possible movement options from that position, which on a grid where you can't move diagonally 
+is just 4 directions(left, right, up, down), and picks the direction which is cheapest with a weight on picking the direction which is closest to the final destination.
+
+The game treats all actions as part of a **queue** and puts a cost on updating the queue. This forced the most successful agents to develop a **queueing** system
+that creates the longest queue possible so that they can avoid updating it and incurring the update cost. This requires predicting where to move, how to move there, and what the gamestate
+will be like many turns into the future. My queueing system is oriented around the [GOAP(Goal Oriented Action Planning)](https://www.youtube.com/watch?v=gm7K68663rA) paradigm. 
+Essentially, each robot descends through a decision tree which determines what 
+goals it should be trying to accomplish given the state of the game at the moment of decision as well as the predicted game state in the future, 
+then generates a queue of all the sequential actions which must take place for those goals to 
+be accomplished. If the queue gets interrupted at any point during execution of the queue, then the decision-making process starts from scratch given that the game environment has 
+evolved since generating the original goal. 
+
+
 ## Strategy
 Though this competition presented many technical challenges, it also provided a great opportunity to explore various 
-strategic concepts. Throughout the course of the competition, the *meta* of the field evolved in many interesting ways.
-Initially, the field was dominated by agents that focused on resource collection and expansion. Any energy expended was used
+strategic concepts. Throughout the course of the competition, the **meta** of the field evolved in many interesting ways.
+Initially, the field was dominated by agents that focused entirely on resource collection and expansion. Any energy expended was used
 either to acquire resources, primarily ice to turn into water, or excavating rubble from the areas immediately surrounding
 a factory. Rubble excavation was vital as you could not grow lichen on a tile that had more than 0 rubble.
 
@@ -53,15 +91,17 @@ Also, since you could not move a factory once it had been placed, it was importa
 were both close to resources and in areas of the map that had minimal rubble.
 
 The heuristics involved in making all of these decisions: where to place your factories, where to build your pathways and which
-resource tiles to build them to, which robots to send to which locations, and which robots to defend your factories with, 
-which robots to mine resources with, which resources to mine and which to leave for the opponent, etc. all became very complex.
+resource tiles to build them to, which robots to send to which locations, which robots to defend your factories with, 
+which robots to mine resources with, which resources to mine at any given time etc. all became very complex. This is made more 
+complex by the fact that no two maps are identical, and your agent must respond to the opponent while also responding to the ever
+evolving state of the map as rubble gets excavated and pathways get opened or blocked.
 
 ## My Approach
 Here I will show you my approach to the problem, and how I was able to achieve a top 25 finish. This will represent the finished
 product of my agent, but it is important to note that this underwent many iterations and improvements throughout the course of the competition.
 
 ### Factory Placement
-The first several turns of every match were dedicated to placing factories. I used a fairly complex heuristic to determine where to place
+The first several turns of every match were dedicated to placing factories. I used a set of heuristics to determine where to place
 factories based on a total score for each tile which consisted of the following components: nearness to resources(with an emphasis on ice), 
 nearness to other factories, and how much rubble was in the surrounding area. The nearness to resources was calculated by finding the
 distance to the closest few tiles of each resource and weighing them based on the type of resource. The nearness to other factories played a
