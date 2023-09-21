@@ -388,7 +388,7 @@ class QueueBuilder:
         # for pos in dibbed_tiles:
         #     x = int(pos[0])
         #     y = int(pos[1])
-        #     if x < 48 and y < 48:
+        #     if x < 64 and y < 64:
         #         lichen_tiles[x, y] = 1000
         #
         # priority_strain = find_most_common_integer(lichen_tiles, self.agent.opp_strains)

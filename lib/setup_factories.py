@@ -22,7 +22,10 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
             number_of_factories = self.number_of_factories
 
         # These are the weights for the different resources dependent on the total number of factories
-        if number_of_factories == 5:
+        if number_of_factories > 5:
+            ice_weight_profile = [[1, 0.1, 0.01, 0.001]]
+            ore_weight_profile = [[0.1, 0.01, 0.001, 0]]
+        elif number_of_factories == 5:
             ice_weight_profile = [[], [1, 0.1, 0.01, 0.001], [1, 0.1, 0.001, 0.001], [1, 0.2, 0.01, 0.001],
                                   [1, 0.2, 0.01, 0.001], [1, 0.4, 0.01, 0.001]]
             ore_weight_profile = [[], [0.1, 0.01, 0.001, 0], [0.4, 0.1, 0.01, 0.001], [0.4, 0.2, 0.1, 0.01],
@@ -72,17 +75,18 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
             ore_distances = [manhattan_dist_to_nth_closest(ore, i) for i in range(1, 5)]
 
             # Set ice weights based on number of factories
-            ICE_WEIGHTS = np.array(ice_weight_profile[factories_to_place])
+            resource_weight_index = factories_to_place if number_of_factories <= 5 else 0
+            ICE_WEIGHTS = np.array(ice_weight_profile[resource_weight_index])
             weighted_ice_dist = np.sum(np.array(ice_distances) * ICE_WEIGHTS[:, np.newaxis, np.newaxis], axis=0)
 
             # Set ore weights based on number of factories
-            ORE_WEIGHTS = np.array(ore_weight_profile[factories_to_place])
+            ORE_WEIGHTS = np.array(ore_weight_profile[resource_weight_index])
             weighted_ore_dist = np.sum(np.array(ore_distances) * ORE_WEIGHTS[:, np.newaxis, np.newaxis], axis=0)
 
             # How heavy should we prefer ice to ore?
             # ice_pref_profile = [[], [], [0, 3, 2], [0, 4, 3, 2], [0, 4, 4, 3, 2], [0, 5, 4, 4, 3, 2]]
-            ice_pref_profile = [[], [], [0, 5, 4], [0, 7, 5, 4], [0, 7, 7, 5, 4], [0, 10, 8, 6, 5, 4]]
-            ICE_PREFERENCE = ice_pref_profile[number_of_factories][factories_to_place]
+            ice_pref_profile = [0, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+            ICE_PREFERENCE = ice_pref_profile[factories_to_place]
 
             # Create a vignette of high rubble tiles around the outside of the map
             # This discourages placing factories near the edge of the map, but doesn't completely rule it out
@@ -118,7 +122,7 @@ def setup(self, step: int, obs, remainingOverageTime: int = 60):
                 "valid_spawns_mask"]
 
             best_loc = np.argmax(overall_score)
-            x, y = np.unravel_index(best_loc, (48, 48))
+            x, y = np.unravel_index(best_loc, (64, 64))
             spawn_loc = (x, y)
 
             loc = np.array([x, y])

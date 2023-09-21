@@ -1,4 +1,4 @@
-luxai_s2==2.1.9
+luxai_s2==3.0.1
 numpy==1.24.2
 scipy==1.10.1
 termcolor==2.2.0

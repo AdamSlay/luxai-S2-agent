@@ -152,7 +152,7 @@ def get_cardinal_tiles(f: np.ndarray):
     tiles = np.array([np.array([f[0], f[1]])])
     for pos in cards:
         # make sure they are within the bounds of our board
-        if 0 <= pos[0] < 48 and 0 <= pos[1] < 48:
+        if 0 <= pos[0] < 64 and 0 <= pos[1] < 64:
             tiles = np.append(tiles, [pos], 0)
     return tiles
 
@@ -197,7 +197,7 @@ def closest_resource_tile(resource: str, start: np.ndarray, off_limits: list, bo
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             tile_map[x, y] = 0
     tile_locations = np.argwhere(tile_map == 1)
     if len(tile_locations) == 0:
@@ -213,7 +213,7 @@ def closest_rubble_tile(start: np.ndarray, off_limits: list, board):
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             tile_map[x][y] = 0
     tile_locations = np.argwhere(((tile_map <= 40) & (tile_map > 0)))
     tile_distances = np.mean((tile_locations - start) ** 2, 1)
@@ -230,13 +230,13 @@ def closest_rubble_tile_in_group(start: np.ndarray, off_limits: list, group: lis
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             off_limits_set.add((x, y))
     group_set = set()
     for pos in group:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             group_set.add((x, y))
     group_set = group_set - off_limits_set
     if len(group_set) == 0:
@@ -257,13 +257,13 @@ def closest_tile_in_group(start: np.ndarray, off_limits: list, group: list):
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             off_limits_set.add((x, y))
     group_set = set()
     for pos in group:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             group_set.add((x, y))
     group_set = group_set - off_limits_set
     if len(group_set) == 0:
@@ -295,7 +295,7 @@ def closest_opp_lichen(opp_strains, start: np.ndarray, off_limits: list, board, 
     for pos in off_limits:
         x = int(pos[0])
         y = int(pos[1])
-        if x < 48 and y < 48:
+        if x < 64 and y < 64:
             lichen_tiles[x, y] = 1000  # this is a null value for the lichen strains
 
     if group is not None:
@@ -335,8 +335,8 @@ def find_most_common_integer(lichen_strain_map, opp_strains, strain_amount=0):
 def get_lichen_in_square(lichen_tiles, player_strains, pos, size):
     x_center, y_center = pos
     half_size = size // 2
-    x_min, x_max = max(0, x_center - half_size), min(48, x_center + half_size + 1)
-    y_min, y_max = max(0, y_center - half_size), min(48, y_center + half_size + 1)
+    x_min, x_max = max(0, x_center - half_size), min(64, x_center + half_size + 1)
+    y_min, y_max = max(0, y_center - half_size), min(64, y_center + half_size + 1)
 
     square_tiles = []
     for x in range(x_min, x_max):
@@ -395,7 +395,7 @@ def find_new_direction(position: np.ndarray, target: np.ndarray, off_limits: lis
                 break
         if pos_off_limits:
             continue
-        elif 0 <= new_pos[0] < 48 and 0 <= new_pos[1] < 48:
+        elif 0 <= new_pos[0] < 64 and 0 <= new_pos[1] < 64:
             return d
     return 0
 

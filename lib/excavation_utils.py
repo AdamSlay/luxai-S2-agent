@@ -24,7 +24,7 @@ def lichen_surrounded(board, strain_id, opp_strains, off_limits, x) -> (bool, in
         x, y = pos
         neighbors = [(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
         for nx, ny in neighbors:
-            is_valid_pos = 0 <= nx < 48 and 0 <= ny < 48 and (nx, ny) not in combined_positions
+            is_valid_pos = 0 <= nx < 64 and 0 <= ny < 64 and (nx, ny) not in combined_positions
             if is_valid_pos and rubble_map[nx, ny] == 0 and \
                     (lichen_strains_map[nx, ny] in opp_strains or lichen_strains_map[nx, ny] == -1):
                 free_spaces += 1
@@ -45,7 +45,7 @@ def next_positions_to_clear(board, strain_id, opp_strains, off_limits):
         neighbors = [(x + dx, y + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
 
         for nx, ny in neighbors:
-            is_valid_pos = 0 <= nx < 48 and 0 <= ny < 48 and (nx, ny) not in off_limits
+            is_valid_pos = 0 <= nx < 64 and 0 <= ny < 64 and (nx, ny) not in off_limits
             if is_valid_pos and rubble_map[nx, ny] > 0:
                 positions_to_clear.append((nx, ny))
 
@@ -93,7 +93,7 @@ def get_orthogonal_positions(center, n, off_limits, board):
                         new_x = border_x + ddx
                         new_y = border_y + ddy
 
-                        if 0 <= new_x < 48 and 0 <= new_y < 48:
+                        if 0 <= new_x < 64 and 0 <= new_y < 64:
                             if (new_x, new_y) not in off_limits and rubble_map[new_x, new_y] > 0:
                                 valid_positions.add((new_x, new_y))
 
